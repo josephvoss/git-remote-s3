@@ -1,55 +1,37 @@
-extern crate clap;
-use clap::{Arg, App, SubCommand, crate_authors, crate_version};
+//extern crate clap;
+//use clap::{AppSettings, Clap, Arg, App, SubCommand, crate_authors, crate_version};
+use clap::{AppSettings, Clap, crate_authors, crate_version};
 use anyhow::{Context, Result};
 
+#[derive(Clap)]
+// Remote helper to fetch and push git objects to a S3 bucket
+struct Opts {
+    #[clap(short, long)]
+    #[clap(default_value = "~/.git-remote-s3.config", env = "GIT_S3_CONFIG")]
+    // Sets a custom config file
+    config: String,
+    // Name of remote repository
+    remoteName: String,
+    // Name of remote S3 bucket
+    remoteBucket: String,
+    #[clap(short, long)]
+    verbose: bool,
+    #[clap(short, long)]
+    debug: bool,
+}
+
 fn main() -> Result<()> {
-    let matches = App::new("git-remote-s3")
-                          .version(crate_version!())
-                          .author(crate_authors!(","))
-                          .arg(Arg::with_name("config")
-                               .short("c")
-                               .long("config")
-                               .value_name("FILE")
-                               .help("Sets a custom config file")
-                               .takes_value(true)
-                               .env("GIT_S3_CONFIG"))
-                          .arg(Arg::with_name("v")
-                               .short("v")
-                               .multiple(true)
-                               .help("Sets the level of verbosity"))
-                          .arg(Arg::with_name("remote-name")
-                               .help("Name of remote repository")
-                               .required(true)
-                               .index(1))
-                          .arg(Arg::with_name("remote-bucket")
-                               .help("URL to remote S3 bucket")
-                               .required(true)
-                               .index(2))
-/* I don't think we actually need subcommands
-                          .subcommand(SubCommand::with_name("capabilities")
-                                      .about("Lists supported features"))
-                          .subcommand(SubCommand::with_name("fetch")
-                                      .about("Get remote refs and download referenced objects"))
-                          .subcommand(SubCommand::with_name("push")
-                                      .about("Change remote refs and push objects up to them"))
-*/
-                          .get_matches();
+    let opts: Opts = Opts::parse();
 
     // Load vars
-    let config = matches.value_of("config").unwrap_or("~/.git-remote-s3.config");
-    let remote = matches.value_of("remote-name")
-        .with_context(|| format!("No remote-name argument specifed!"))?;
-    let bucket = matches.value_of("remote-bucket")
-        .with_context(|| format!("No remote-bucket argument specifed!"))?;
+//jkk    let config = matches.value_of("config").unwrap_or("~/.git-remote-s3.config");
+//jkk    let remote = matches.value_of("remote-name")
+//jkk        .with_context(|| format!("No remote-name argument specifed!"))?;
+//jkk    let bucket = matches.value_of("remote-bucket")
+//jkk        .with_context(|| format!("No remote-bucket argument specifed!"))?;
     //println!("Value for config: {}", config);
 
     // Set logging level
-    match matches.occurrences_of("v") {
-        0 => println!("No verbose info"),
-        1 => println!("Some verbose info"),
-        2 => println!("Tons of verbose info"),
-        3 | _ => println!("Don't be crazy"),
-    }
 
     // Build git_s3 object
 
