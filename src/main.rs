@@ -18,10 +18,6 @@ fn main() -> Result<()> {
     // Build git_s3 object
     let remote = git_s3::Remote::new(opts);
 
-    // Lock stdin
-
-    // Loop over commands on stdin, do work
-
-    // Return
-    Ok(())
+    // Loop over commands on stdin, do work, return when done
+    remote.run()
 }
