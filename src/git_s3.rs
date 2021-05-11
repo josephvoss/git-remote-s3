@@ -189,7 +189,7 @@ impl Remote {
 /// * Endpoint URL
 fn new_bucket(
     //bucket_name: &str, git_object_dir: String, profile: String, endpoint_url: String,
-    bucket_name: &str, profile: Option<&str>, endpoint_url: &str,
+    bucket_name: &str, profile: Option<&str>, region: &str,
 ) -> Result<Bucket, anyhow::Error>{
 
     // Parse config
@@ -199,11 +199,9 @@ fn new_bucket(
 
     Bucket::new(
         bucket_name,
-        Region::Custom {
-            region: "".into(),
-            endpoint: endpoint_url.to_string(),
-        },
-        Credentials::from_profile(profile)
+        region.parse()
+            .with_context(|| format!("Could not create region for \"{}\"", region))?,
+        Credentials::new(None, None, None, None, profile)
             .with_context(|| format!(
                 "Could not load S3 credentials for profile \"{}\"",
                 match profile {
