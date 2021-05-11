@@ -7,6 +7,7 @@ use log::{trace, debug, info, warn, error};
 use anyhow::{Context, Result};
 
 use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
@@ -15,22 +16,30 @@ use s3::S3Error;
 
 /// Struct containing data needed for methods
 pub struct Remote {
-    /// Path to auth creds, options set, etc.
-    config_path: String,
     // Stream of commands being run (needed?)
     //stdin_stream: String,
     /// Path to local git object store we're reading from
-    git_dir: String
+    git_dir: PathBuf,
+    /// Bucket we're communicating with
+    bucket: Bucket,
 }
 
 impl Remote {
 
-    pub fn new(opts: cli::Opts) -> Self {
-        error!("error");
-        warn!("warn");
-        info!("info");
-        debug!("debug");
-        Remote {config_path: opts.config, git_dir: "hi".to_string()}
+    pub fn new(remote_url: String, git_dir: PathBuf, opts: cli::Opts) -> Result<Self> {
+        info!("Creating new remote with\nURL: {:?}\nGit Dir: {:?}\nOpts: {:?}",
+              remote_url, git_dir, opts);
+        let (profile_name, bucket_name, endpoint_url) = parse_remote_url(remote_url)
+            .with_context(|| format!("Unable to parse remote URL"))?;
+        // Cast from Option<String> to Option<&str>
+        let profile_name = match &profile_name {
+            Some(s) => Some(s.as_str()),
+            None => None,
+        };
+        Ok(Remote {
+            git_dir: git_dir,
+            bucket: new_bucket(&bucket_name, profile_name, &endpoint_url)?
+        })
     }
     // List supported commands
     pub fn capabilities(&self) -> Result<()> {
@@ -167,16 +176,17 @@ impl Remote {
 
         }
     }
+
 }
 
 /// Instantiate new connection
 /// Params:
-/// * Path to local git object dir
-/// * Path to config file to read creds
+/// * Name of bucket
+/// * Name of S3 profile to use. Reads from default creds file or environment
 /// * Endpoint URL
-/// * bucket name
-fn newBucket(
-    bucket_name: &str, git_object_dir: String, profile: String, endpoint_url: String,
+fn new_bucket(
+    //bucket_name: &str, git_object_dir: String, profile: String, endpoint_url: String,
+    bucket_name: &str, profile: Option<&str>, endpoint_url: &str,
 ) -> Result<Bucket, anyhow::Error>{
 
     // Parse config
@@ -184,23 +194,64 @@ fn newBucket(
     // Just using s3 profiles for now
     // TODO - parse profile from remote URL (<profile>@<region>?)
 
-    let credentials: Credentials = Credentials::from_profile(Some(&profile)).with_context(|| format!("Could not load S3 credentials for profile \"{}\"",profile))?;
-//    let credentials: Credentials = Credentials::from_profile(Some(&profile)).map_err(|err| Err(format!("Could not load credentials for profile \"{}\": {:?}",profile, err)))?;
-    //let credentials: Credentials = Credentials::from_profile(Some(&profile)).map_err(|err| Err(format!("Could not load credentials for profile \"{}\": {:?}",profile, err)))?;
-//    let credentials: Credentials = match Credentials::from_profile(Some(&profile)) {
-//        Ok(credentials) => credentials,
-//        S3Error(error) => return error.map_err(|err| Err(format!(
-//                        "Could not load crednetials for profile \"{}\": {:?}",profile, err))),
-//        };
-//        .with_context(|| format!("Could not load S3 credentials for profile \"{}\"",profile))?;
     Bucket::new(
         bucket_name,
         Region::Custom {
             region: "".into(),
-            endpoint: endpoint_url,
+            endpoint: endpoint_url.to_string(),
         },
-        credentials,
+        Credentials::from_profile(profile)
+            .with_context(|| format!(
+                "Could not load S3 credentials for profile \"{}\"",
+                match profile {
+                    Some(content) => content,
+                    None => "default",
+                }
+            ))?,
     ).with_context(|| format!("Could not load S3 bucket \"{}\"", bucket_name))
-//        .map_err(|err| Err(format!("Could not load credentials for profile \"{}\": {:?}",profile, err)))
-        //.with_context(|| format!("Could not load S3 bucket \"{}\"", bucket_name))
+}
+
+/// Parse remote_url string into optional profile name, and mandatory remote URL and bucket name
+///
+/// Ex;
+/// s3://<profile_name>@<region>/bucket
+/// s3://<region>/bucket
+fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, String)> {
+    info!("Parsing remote url {}", remote_url);
+
+    // Remove prefix
+    let prefix = "s3://";
+    let remote_url = remote_url.strip_prefix(prefix)
+        .with_context(|| format!(
+            "Remote name \"{}\" does not start with {}", remote_url, prefix,
+        ))?;
+
+    // Find profile by tokenizing @ if it exists
+    let v: Vec<&str> = remote_url.split('@').collect();
+    let profile: Option<String> = match v.len() {
+        1 => None,
+        _ => Some(v[0].to_string()),
+    };
+    info!("Parsed profile \"{}\" from {}",
+        match profile {
+            Some(ref content) => content,
+            None => "default",
+        },
+        remote_url
+    );
+
+    // Find region. Index changes if profile exists or not
+    let start_index: usize = match profile {
+        Some(_) => 1,
+        None => 0,
+    };
+    let v: Vec<&str> = remote_url.split('/').collect();
+    let region: String = v[start_index].to_string();
+    info!("Parsed region \"{}\" from {}", region, remote_url);
+
+    // Find bucket name. Just first / to end
+    let bucket: String = v[start_index+1..].join("/");
+    info!("Parsed bucket \"{}\" from {}", bucket, remote_url);
+
+    Ok((profile, region, bucket))
 }

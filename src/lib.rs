@@ -20,7 +20,6 @@ mod git_s3 {
             }
         }
         // List supported commands
-        // Mandatory
         pub fn capabilities() {
             println!("option");
             println!("fetch");
