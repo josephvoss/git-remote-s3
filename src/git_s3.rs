@@ -8,6 +8,11 @@ use anyhow::{Context, Result};
 
 use std::io::{self, Read};
 
+use s3::bucket::Bucket;
+use s3::creds::Credentials;
+use s3::region::Region;
+use s3::S3Error;
+
 /// Struct containing data needed for methods
 pub struct Remote {
     /// Path to auth creds, options set, etc.
@@ -113,8 +118,8 @@ impl Remote {
             io::stdin().read_line(&mut buffer)
                 .with_context(|| format!("Could not read line from stdin"))?;
 
-            // Split it by space
-            let line_vec = buffer.split(" ").collect::<Vec<_>>();
+            // Split it by space, trim whitespace, build into vector
+            let line_vec = buffer.split(" ").map(|x| x.trim()).collect::<Vec<_>>();
             debug!("Line split vector is: {:?}", line_vec);
             let command = line_vec[0];
 
@@ -162,4 +167,40 @@ impl Remote {
 
         }
     }
+}
+
+/// Instantiate new connection
+/// Params:
+/// * Path to local git object dir
+/// * Path to config file to read creds
+/// * Endpoint URL
+/// * bucket name
+fn newBucket(
+    bucket_name: &str, git_object_dir: String, profile: String, endpoint_url: String,
+) -> Result<Bucket, anyhow::Error>{
+
+    // Parse config
+    // git config --get s3.bucket ? How do remotes?
+    // Just using s3 profiles for now
+    // TODO - parse profile from remote URL (<profile>@<region>?)
+
+    let credentials: Credentials = Credentials::from_profile(Some(&profile)).with_context(|| format!("Could not load S3 credentials for profile \"{}\"",profile))?;
+//    let credentials: Credentials = Credentials::from_profile(Some(&profile)).map_err(|err| Err(format!("Could not load credentials for profile \"{}\": {:?}",profile, err)))?;
+    //let credentials: Credentials = Credentials::from_profile(Some(&profile)).map_err(|err| Err(format!("Could not load credentials for profile \"{}\": {:?}",profile, err)))?;
+//    let credentials: Credentials = match Credentials::from_profile(Some(&profile)) {
+//        Ok(credentials) => credentials,
+//        S3Error(error) => return error.map_err(|err| Err(format!(
+//                        "Could not load crednetials for profile \"{}\": {:?}",profile, err))),
+//        };
+//        .with_context(|| format!("Could not load S3 credentials for profile \"{}\"",profile))?;
+    Bucket::new(
+        bucket_name,
+        Region::Custom {
+            region: "".into(),
+            endpoint: endpoint_url,
+        },
+        credentials,
+    ).with_context(|| format!("Could not load S3 bucket \"{}\"", bucket_name))
+//        .map_err(|err| Err(format!("Could not load credentials for profile \"{}\": {:?}",profile, err)))
+        //.with_context(|| format!("Could not load S3 bucket \"{}\"", bucket_name))
 }
