@@ -10,8 +10,11 @@ pub struct Opts {
     pub config: String,
     /// Name of remote repository
     pub remote_name: String,
-    /// Name of remote S3 bucket
-    pub remote_bucket: String,
+    /// Name of remote URL
+    pub remote_url: String,
+    /// Git dir to operate on
+    #[structopt(long, env = "GIT_DIR")]
+    pub git_dir: String,
     /// Enable verbose logging (-v, -vv, -vvv, etc)
     #[structopt(short, long, parse(from_occurrences))]
     pub verbose: usize,

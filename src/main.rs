@@ -9,15 +9,7 @@ use std::path::PathBuf;
 
 fn main() -> Result<()> {
     let opts = cli::Opts::from_args();
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() != 3 {
-        return Err(Error::msg(
-                format!("Invalid args: Expected 2, got {}", args.len())
-            ));
-    }
-    let remote_url = &args[2];
-    info!("Remote URL is \"{}\"", remote_url);
+    info!("Remote URL is \"{}\"", opts.remote_url);
 
     let git_dir = match env::var("GIT_DIR") {
         Ok(content) => content,
@@ -37,7 +29,7 @@ fn main() -> Result<()> {
 
     // Build git_s3 object
     let remote =
-        match git_s3::Remote::new(remote_url.to_string(), git_dir, opts) {
+        match git_s3::Remote::new(opts) {
             Ok(content) => content,
             Err(err) => return Err(Error::msg(
                     format!("Unable to create remote: {:?}", err)

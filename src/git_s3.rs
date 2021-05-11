@@ -26,10 +26,13 @@ pub struct Remote {
 
 impl Remote {
 
-    pub fn new(remote_url: String, git_dir: PathBuf, opts: cli::Opts) -> Result<Self> {
-        info!("Creating new remote with\nURL: {:?}\nGit Dir: {:?}\nOpts: {:?}",
-              remote_url, git_dir, opts);
-        let (profile_name, bucket_name, endpoint_url) = parse_remote_url(remote_url)
+    pub fn new(opts: cli::Opts) -> Result<Self> {
+        info!("Creating new remote with opts: {:?}", opts);
+
+        let git_dir = PathBuf::from(opts.git_dir);
+        info!("GIT_DIR is \"{}\"", git_dir.to_str().unwrap());
+
+        let (profile_name, bucket_name, endpoint_url) = parse_remote_url(opts.remote_url)
             .with_context(|| format!("Unable to parse remote URL"))?;
         // Cast from Option<String> to Option<&str>
         let profile_name = match &profile_name {
@@ -228,6 +231,7 @@ fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, Strin
 
     // Find profile by tokenizing @ if it exists
     let v: Vec<&str> = remote_url.split('@').collect();
+    debug!("Split profile vector is {:?}", v);
     let profile: Option<String> = match v.len() {
         1 => None,
         _ => Some(v[0].to_string()),
@@ -245,13 +249,35 @@ fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, Strin
         Some(_) => 1,
         None => 0,
     };
-    let v: Vec<&str> = remote_url.split('/').collect();
-    let region: String = v[start_index].to_string();
+    let rb: Vec<&str> = v[start_index].split('/').collect();
+    let region: String = rb[0].to_string();
     info!("Parsed region \"{}\" from {}", region, remote_url);
 
     // Find bucket name. Just first / to end
-    let bucket: String = v[start_index+1..].join("/");
+    let bucket: String = rb[1..].join("/");
     info!("Parsed bucket \"{}\" from {}", bucket, remote_url);
 
     Ok((profile, region, bucket))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_remote_url() {
+        assert_eq!(parse_remote_url("s3://profile@region/bucket".to_string()).unwrap(),
+        (Some("profile".to_string()),"region".to_string(),"bucket".to_string()))
+    }
+    #[test]
+    fn test_no_profile_parse_remote_url() {
+        assert_eq!(parse_remote_url("s3://region/bucket".to_string()).unwrap(),
+        (None,"region".to_string(),"bucket".to_string()))
+    }
+    #[test]
+    #[should_panic]
+    fn test_no_prefix_parse_remote_url() {
+        let _ = parse_remote_url("region/bucket".to_string()).unwrap();
+    }
+
 }
