@@ -242,17 +242,21 @@ fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, Strin
         remote_url
     );
 
-    // Find region. Index changes if profile exists or not
+    // Find region. From the remaining url, split on /. Region is everything before that
+    //
+    // Index changes if profile exists or not
     let start_index: usize = match profile {
         Some(_) => 1,
         None => 0,
     };
+    // Split on /
     let rb: Vec<&str> = v[start_index].split('/').collect();
-    let region: String = rb[0].to_string();
+    // Join everything but bucket
+    let region: String = rb[0..rb.len()-1].join("/").to_string();
     info!("Parsed region \"{}\" from {}", region, remote_url);
 
-    // Find bucket name. Just first / to end
-    let bucket: String = rb[1..].join("/");
+    // Find bucket name (last /)
+    let bucket: String = rb.last().unwrap().to_string();
     info!("Parsed bucket \"{}\" from {}", bucket, remote_url);
 
     Ok((profile, region, bucket))
@@ -277,5 +281,14 @@ mod tests {
     fn test_no_prefix_parse_remote_url() {
         let _ = parse_remote_url("region/bucket".to_string()).unwrap();
     }
-
+    #[test]
+    fn test_http_format_parse_remote_url() {
+        assert_eq!(parse_remote_url("s3://profile_test@https://localhost:9000/bucket12345".to_string()).unwrap(),
+        (Some("profile_test".to_string()), "https://localhost:9000".to_string(),"bucket12345".to_string()))
+    }
+    #[test]
+    fn test_http_format_no_profile_parse_remote_url() {
+        assert_eq!(parse_remote_url("s3://https://localhost:9000/bucket12345".to_string()).unwrap(),
+        (None, "https://localhost:9000".to_string(),"bucket12345".to_string()))
+    }
 }
