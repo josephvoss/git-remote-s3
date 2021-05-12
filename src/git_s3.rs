@@ -4,7 +4,7 @@ use crate::cli;
 
 use log::{trace, debug, info, warn, error};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -24,6 +24,12 @@ pub struct Remote {
     bucket: Bucket,
 }
 
+#[derive(Debug,PartialEq)]
+enum BucketStyle {
+    Path,
+    Subdomain,
+}
+
 impl Remote {
 
     pub fn new(opts: cli::Opts) -> Result<Self> {
@@ -32,14 +38,17 @@ impl Remote {
         let git_dir = PathBuf::from(opts.git_dir);
         info!("GIT_DIR is \"{}\"", git_dir.to_str().unwrap());
 
-        let (profile_name, endpoint_url, bucket_name) = parse_remote_url(opts.remote_url)
+        let (profile_name, endpoint_url, bucket_name, bucket_style) =
+            parse_remote_url(opts.remote_url)
             .with_context(|| format!("Unable to parse remote URL"))?;
         // Cast from Option<String> to Option<&str>
         let profile_name = match &profile_name {
             Some(s) => Some(s.as_str()),
             None => None,
         };
-        let bucket = new_bucket(&bucket_name, profile_name, &endpoint_url)?;
+        let bucket = new_bucket(
+            &bucket_name, profile_name, &endpoint_url, bucket_style
+        )?;
         debug!("Bucket is {:?}", bucket);
         Ok( Remote { git_dir: git_dir, bucket: bucket } )
     }
@@ -194,9 +203,10 @@ impl Remote {
 /// * Name of bucket
 /// * Name of S3 profile to use. Reads from default creds file or environment
 /// * Endpoint URL
+/// * Bucket style to use (true for <remote>/<bucket>, false for <bucket>.<remote>
 fn new_bucket(
     //bucket_name: &str, git_object_dir: String, profile: String, endpoint_url: String,
-    bucket_name: &str, profile: Option<&str>, region: &str,
+    bucket_name: &str, profile: Option<&str>, region: &str, bucket_style: BucketStyle
 ) -> Result<Bucket, anyhow::Error>{
 
     info!("Building new bucket");
@@ -208,26 +218,31 @@ fn new_bucket(
     let r = region.parse()
             .with_context(|| format!("Could not create region for \"{}\"", region))?;
     info!("Loaded region is {}", r);
-    Bucket::new(
-        bucket_name,
-        r,
-        Credentials::new(None, None, None, None, profile)
+    let c =  Credentials::new(None, None, None, None, profile)
             .with_context(|| format!(
                 "Could not load S3 credentials for profile \"{}\"",
                 match profile {
                     Some(content) => content,
                     None => "default",
                 }
-            ))?,
-    ).with_context(|| format!("Could not load S3 bucket \"{}\"", bucket_name))
+            ))?;
+    match bucket_style {
+        BucketStyle::Path => Bucket::new_with_path_style(bucket_name, r, c),
+        BucketStyle::Subdomain => Bucket::new(bucket_name, r, c),
+    }.with_context(|| format!("Could not load S3 bucket \"{}\"", bucket_name))
 }
 
-/// Parse remote_url string into optional profile name, and mandatory remote URL and bucket name
+/// Parse remote_url string into optional profile name, and mandatory remote URL and bucket name.
+/// Key off `/` or `:` for path style to use
 ///
 /// Ex;
-/// s3://<profile_name>@<region>/bucket
-/// s3://<region>/bucket
-fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, String)> {
+/// s3://<profile_name>@<region>/<bucket>
+/// s3://<region>/<bucket>
+/// s3://example.com/s3/url/<bucket>
+/// s3://s3.example.com/<bucket>
+/// s3://<region>:<bucket>
+/// s3://s3.example.com:<bucket>
+fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, String, BucketStyle)> {
     info!("Parsing remote url {}", remote_url);
 
     // Remove prefix
@@ -252,39 +267,60 @@ fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, Strin
         remote_url
     );
 
-    // Find region. From the remaining url, split on /. Region is everything before that
-    //
+    // Find region. From the remaining url, split on / or :
+    // later, and join to the bucket name
+
     // Index changes if profile exists or not
     let start_index: usize = match profile {
         Some(_) => 1,
         None => 0,
     };
-    // Split on /
-    let rb: Vec<&str> = v[start_index].split('/').collect();
-    // Join everything but bucket
-    let region: String = rb[0..rb.len()-1].join("/").to_string();
+    let remaining_str = v[start_index];
+    // Split on last / or :
+    let region_bucket: Vec<&str> = remaining_str.rsplitn(2,&['/',':'][..]).collect();
+    debug!("Split region_bucket vector is {:?}", region_bucket);
+    let region: String = region_bucket.last().unwrap().to_string();
     info!("Parsed region \"{}\" from {}", region, remote_url);
 
-    // Find bucket name (last /)
-    let bucket: String = rb.last().unwrap().to_string();
+    // Find bucket name (last /).
+    let bucket: String = region_bucket.first().unwrap().to_string();
     info!("Parsed bucket \"{}\" from {}", bucket, remote_url);
 
-    Ok((profile, region, bucket))
+    // Get path style from sep (length of split region)
+    let sep = remaining_str.chars().nth(region.len())
+        .with_context(|| format!("Unable to get seperator from {}",remaining_str))?;
+    debug!("Sep is {}", sep);
+    let style = match sep {
+        '/' => BucketStyle::Path,
+        ':' => BucketStyle::Subdomain,
+        _ => return Err(Error::msg(
+                format!("No matching bucket style for {}", sep)
+            ))
+    };
+    info!("Parsed style \"{:?}\" from {}", style, remote_url);
+
+    Ok((profile, region, bucket, style))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+// s3://<profile_name>@<region>/<bucket>
+// s3://<region>/<bucket>
+// s3://example.com/s3/url/<bucket>
+// s3://s3.example.com/<bucket>
+// s3://<region>:<bucket>
+// s3://s3.example.com:<bucket>
     #[test]
     fn test_parse_remote_url() {
         assert_eq!(parse_remote_url("s3://profile@region/bucket".to_string()).unwrap(),
-        (Some("profile".to_string()),"region".to_string(),"bucket".to_string()))
+        (Some("profile".to_string()),"region".to_string(),"bucket".to_string(),BucketStyle::Path))
     }
     #[test]
     fn test_no_profile_parse_remote_url() {
         assert_eq!(parse_remote_url("s3://region/bucket".to_string()).unwrap(),
-        (None,"region".to_string(),"bucket".to_string()))
+        (None,"region".to_string(),"bucket".to_string(),BucketStyle::Path))
     }
     #[test]
     #[should_panic]
@@ -292,13 +328,18 @@ mod tests {
         let _ = parse_remote_url("region/bucket".to_string()).unwrap();
     }
     #[test]
-    fn test_http_format_parse_remote_url() {
-        assert_eq!(parse_remote_url("s3://profile_test@https://localhost:9000/bucket12345".to_string()).unwrap(),
-        (Some("profile_test".to_string()), "https://localhost:9000".to_string(),"bucket12345".to_string()))
+    fn test_path_with_port_no_profile_parse_remote_url() {
+        assert_eq!(parse_remote_url("s3://localhost:9000/bucket12345".to_string()).unwrap(),
+        (None, "localhost:9000".to_string(),"bucket12345".to_string(),BucketStyle::Path))
     }
     #[test]
-    fn test_http_format_no_profile_parse_remote_url() {
-        assert_eq!(parse_remote_url("s3://https://localhost:9000/bucket12345".to_string()).unwrap(),
-        (None, "https://localhost:9000".to_string(),"bucket12345".to_string()))
+    fn test_url_subdomain_no_profile_parse_remote_url() {
+        assert_eq!(parse_remote_url("s3://example.com/long/url:bucket12345".to_string()).unwrap(),
+        (None, "example.com/long/url".to_string(),"bucket12345".to_string(),BucketStyle::Subdomain))
+    }
+    #[test]
+    fn test_url_port_subdomain_parse_remote_url() {
+        assert_eq!(parse_remote_url("s3://example.com:60000:bucket12345".to_string()).unwrap(),
+        (None, "example.com:60000".to_string(),"bucket12345".to_string(),BucketStyle::Subdomain))
     }
 }
