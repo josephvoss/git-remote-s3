@@ -11,15 +11,6 @@ fn main() -> Result<()> {
     let opts = cli::Opts::from_args();
     info!("Remote URL is \"{}\"", opts.remote_url);
 
-    let git_dir = match env::var("GIT_DIR") {
-        Ok(content) => content,
-        Err(err) => return Err(Error::msg(
-                format!("Unable to read GIT_DIR from env: {:?}", err)
-            )),
-    };
-    let git_dir = PathBuf::from(git_dir);
-    info!("GIT_DIR is \"{}\"", git_dir.to_str().unwrap());
-
     // Set logging level - is this even supported?
     stderrlog::new()
         .module(module_path!())

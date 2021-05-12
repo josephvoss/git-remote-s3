@@ -32,17 +32,16 @@ impl Remote {
         let git_dir = PathBuf::from(opts.git_dir);
         info!("GIT_DIR is \"{}\"", git_dir.to_str().unwrap());
 
-        let (profile_name, bucket_name, endpoint_url) = parse_remote_url(opts.remote_url)
+        let (profile_name, endpoint_url, bucket_name) = parse_remote_url(opts.remote_url)
             .with_context(|| format!("Unable to parse remote URL"))?;
         // Cast from Option<String> to Option<&str>
         let profile_name = match &profile_name {
             Some(s) => Some(s.as_str()),
             None => None,
         };
-        Ok(Remote {
-            git_dir: git_dir,
-            bucket: new_bucket(&bucket_name, profile_name, &endpoint_url)?
-        })
+        let bucket = new_bucket(&bucket_name, profile_name, &endpoint_url)?;
+        debug!("Bucket is {:?}", bucket);
+        Ok( Remote { git_dir: git_dir, bucket: bucket } )
     }
     // List supported commands
     pub fn capabilities(&self) -> Result<()> {
@@ -62,7 +61,27 @@ impl Remote {
      *
      * Needed by fetch.
      */
-    pub fn list(&self) -> Result<()> {
+    /*
+     * list for-push
+     *
+     * Similar to list, except that it is used if and only if the caller wants to the resulting
+     * ref list to prepare push commands. A helper supporting both push and fetch can use this
+     * to distinguish for which operation the output of list is going to be used, possibly
+     * reducing the amount of work that needs to be performed.
+     *
+     * Needed by push
+     */
+    /// List refs that this bucket knows about. Returns all objects in s3 prefaced with `refs/`.
+    /// Takes a parameter to return default remote branch (`HEAD`)
+    pub fn list(&self, include_head: bool) -> Result<()> {
+        let result = self.bucket.list_blocking("refs/".to_string(), None)
+            .with_context(|| "List command failed")?;
+        /*
+        for r in results {
+            for object in results.contents {
+            }
+        }
+        */
         Ok(())
     }
     /*
@@ -89,19 +108,6 @@ impl Remote {
      * Needed by fwtch
      */
     pub fn fetch(&self) -> Result<()> {
-        Ok(())
-    }
-    /*
-     * list for-push
-     *
-     * Similar to list, except that it is used if and only if the caller wants to the resulting
-     * ref list to prepare push commands. A helper supporting both push and fetch can use this
-     * to distinguish for which operation the output of list is going to be used, possibly
-     * reducing the amount of work that needs to be performed.
-     *
-     * Needed by push
-     */
-    pub fn list_for_push(&self) -> Result<()> {
         Ok(())
     }
     /*
@@ -143,7 +149,12 @@ impl Remote {
                 },
                 "list" => {
                     info!("Starting list");
-                    self.list()
+                    let for_push: bool = match line_vec.last() {
+                        Some(s) => s.to_string() == "for-push",
+                        None => false,
+                    };
+                    if for_push {info!("For-push")};
+                    self.list(for_push)
                 },
                 "option" => {
                     info!("Starting option");
@@ -156,10 +167,6 @@ impl Remote {
                 "push" => {
                     info!("Starting push");
                     self.push()
-                },
-                "list_for_push" => {
-                    info!("Starting list_for_push");
-                    self.list_for_push()
                 },
                 _ => {
                     info!("No matching command found for: {}", command);
@@ -192,15 +199,18 @@ fn new_bucket(
     bucket_name: &str, profile: Option<&str>, region: &str,
 ) -> Result<Bucket, anyhow::Error>{
 
+    info!("Building new bucket");
     // Parse config
     // git config --get s3.bucket ? How do remotes?
     // Just using s3 profiles for now
     // TODO - parse profile from remote URL (<profile>@<region>?)
 
+    let r = region.parse()
+            .with_context(|| format!("Could not create region for \"{}\"", region))?;
+    info!("Loaded region is {}", r);
     Bucket::new(
         bucket_name,
-        region.parse()
-            .with_context(|| format!("Could not create region for \"{}\"", region))?,
+        r,
         Credentials::new(None, None, None, None, profile)
             .with_context(|| format!(
                 "Could not load S3 credentials for profile \"{}\"",
