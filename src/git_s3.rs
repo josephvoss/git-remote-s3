@@ -8,6 +8,7 @@ use anyhow::{Context, Error, Result};
 
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::fs;
 
 use s3::bucket::Bucket;
 use s3::creds::Credentials;
@@ -32,6 +33,8 @@ enum BucketStyle {
 
 impl Remote {
 
+    /// Create a new Remote object. Mostly just contains the s3::bucket::Bucket object and helper
+    /// methods to access it
     pub fn new(opts: cli::Opts) -> Result<Self> {
         info!("Creating new remote with opts: {:?}", opts);
 
@@ -52,9 +55,9 @@ impl Remote {
         debug!("Bucket is {:?}", bucket);
         Ok( Remote { git_dir: git_dir, bucket: bucket } )
     }
-    // List supported commands
+    /// List supported commands
     pub fn capabilities(&self) -> Result<()> {
-        println!("option");
+        // println!("option");
         println!("fetch");
         println!("push");
         Ok(())
@@ -82,15 +85,18 @@ impl Remote {
      */
     /// List refs that this bucket knows about. Returns all objects in s3 prefaced with `refs/`.
     /// Takes a parameter to return default remote branch (`HEAD`)
+    /// Prints "<data> <key>"
     pub fn list(&self, include_head: bool) -> Result<()> {
-        let result = self.bucket.list_blocking("refs/".to_string(), None)
+        let results = self.bucket.list_blocking("refs/".to_string(), None)
             .with_context(|| "List command failed")?;
-        /*
-        for r in results {
-            for object in results.contents {
+        for (r, _) in results {
+            for object in r.contents {
+                let (data, _) = self.bucket.get_object_blocking(&object.key)
+                    .with_context(|| format!("Unable to list content for ref \'{}\'", object.key))?;
+                let string_data = std::str::from_utf8(&data)?;
+                println!("{} {}", string_data, object.key);
             }
         }
-        */
         Ok(())
     }
     /*
@@ -103,9 +109,11 @@ impl Remote {
      *
      * Needed by option.
      */
-    pub fn option(&self) -> Result<()> {
+    /*
+     pub fn option(&self) -> Result<()> {
         Ok(())
     }
+    */
     /*
      * fetch <sha1> <name>
      *
@@ -114,9 +122,37 @@ impl Remote {
      * line when all fetch commands in the same batch are complete. Only objects which were
      * reported in the output of list with a sha1 may be fetched this way.
      *
-     * Needed by fwtch
+     * Needed by fetch
      */
-    pub fn fetch(&self) -> Result<()> {
+    pub fn fetch(&self, sha1: String, name: String) -> Result<()> {
+
+        // Fetch commit first
+        fetch_object(&sha1)
+            .with_context(|| format!("Unable to fetch commit \'{}\'", &sha1))?;
+        // Parse object to get list of deps
+
+        // For each dep, check if already present. If not, fetch
+
+    }
+    /// Fetch an object from remote by SHA, save to local git object store.
+    /// Blocks
+    fn fetch_object(&self, sha1: String) -> Result<()> {
+        // Build path from name
+        // copy git_dir to path
+        let mut path = self.git_dir.clone();
+        path.push(&sha1[..2]);
+        fs::create_dir_all(&path)
+            .with_context(|| format!("Unable to create object dir {:?}", &path))?;
+        debug!("Created dir {:?}", &path);
+        path.push(&sha1[2..]);
+        debug!("Object path is {:?}",path);
+        let mut f = fs::File::create(path).with_context(|| format!("Unable to open file writing for commit \'{}\'", sha1))?;
+        let code = self.bucket.get_object_stream_blocking(&sha1, &mut f)
+            .with_context(|| format!("Unable to fetch commit \'{}\'", sha1))?;
+        info!("Fetch for \'{}\': {}", sha1, code);
+        if code != 200 {
+            return Err(Error::msg(format!("Non-okay fetch for \'{}\': {}", sha1, code)))
+        }
         Ok(())
     }
     /*
@@ -165,13 +201,20 @@ impl Remote {
                     if for_push {info!("For-push")};
                     self.list(for_push)
                 },
+                /*
                 "option" => {
                     info!("Starting option");
                     self.option()
                 },
+                */
                 "fetch" => {
                     info!("Starting fetch");
-                    self.fetch()
+                    if line_vec.len() < 3 {
+                        return Err(Error::msg(format!("Fetch command has invalid args: {:?}", line_vec)))
+                    }
+                    let sha = line_vec[1].to_string();
+                    let name = line_vec[2].to_string();
+                    self.fetch(sha, name)
                 },
                 "push" => {
                     info!("Starting push");
@@ -301,6 +344,9 @@ fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, Strin
 
     Ok((profile, region, bucket, style))
 }
+
+/// Build git ref path from sha
+/// join git_dir w/ sha1[0:2], sha1[2:]
 
 #[cfg(test)]
 mod tests {
