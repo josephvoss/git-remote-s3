@@ -6,7 +6,7 @@ use log::{trace, debug, info, warn, error};
 
 use anyhow::{Context, Error, Result};
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::fs;
 
@@ -14,6 +14,9 @@ use s3::bucket::Bucket;
 use s3::creds::Credentials;
 use s3::region::Region;
 use s3::S3Error;
+
+use git_object::immutable::{Blob, Commit, Object, Tree};
+use git_hash::ObjectId;
 
 /// Struct containing data needed for methods
 pub struct Remote {
@@ -125,35 +128,75 @@ impl Remote {
      * Needed by fetch
      */
     pub fn fetch(&self, sha1: String, name: String) -> Result<()> {
-
-        // Fetch commit first
-        fetch_object(&sha1)
+        // Fetch commit
+        self.fetch_commit(sha1)
+    }
+    /// Fetch a commit, and all objects it depends on
+    fn fetch_commit(&self, sha1: String) -> Result<()> {
+        let data = self.fetch_object(sha1.clone())
             .with_context(|| format!("Unable to fetch commit \'{}\'", &sha1))?;
-        // Parse object to get list of deps
 
-        // For each dep, check if already present. If not, fetch
+        // Parse object, fetch deps
+        let commit_obj = Commit::from_bytes(&data)?;
+        self.fetch_tree(std::str::from_utf8(&commit_obj.tree().to_sha1_hex())?.to_string())
+            .with_context(|| format!("Unable to fetch tree for commit \'{}\'", &sha1))?;
+        commit_obj.parents()
+            .map(|obj| self.fetch_commit(std::str::from_utf8(&obj.to_sha1_hex())?.to_string()))
+            .collect::<Result<()>>()
+            .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
+        Ok(())
+    }
+    fn fetch_tree(&self, sha1: String) -> Result<()> {
+        let data = self.fetch_object(sha1.clone())
+            .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))?;
 
+        // Parse object, fetch deps
+        let tree_obj = Tree::from_bytes(&data)?;
+        // Iter over entries, fetch tree or object
+        tree_obj.entries.iter()
+            .map(|e| {
+                 let sha1 = std::str::from_utf8(&e.oid.to_sha1_hex())?.to_string();
+                 if e.mode.is_tree() {
+                     self.fetch_tree(sha1.clone())
+                 } else {
+                     match self.fetch_object(sha1.clone()) {
+                         Ok(_) => Ok(()),
+                         Err(error) => Err(error),
+                     }
+                 }
+            })
+            .collect::<Result<()>>()
+            .with_context(|| format!("Unable to fetch entries for tree \'{}\'", &sha1))?;
+        Ok(())
     }
     /// Fetch an object from remote by SHA, save to local git object store.
     /// Blocks
-    fn fetch_object(&self, sha1: String) -> Result<()> {
+    fn fetch_object(&self, sha1: String) -> Result<(Vec<u8>)> {
+
+        // TODO Check if already saved
+
+        // Get data
+        let (data, code) = self.bucket.get_object_blocking(&sha1)
+            .with_context(|| format!("Unable to fetch object\'{}\'", sha1))?;
+        info!("Fetch for \'{}\': {}", sha1, code);
+        if code != 200 {
+            return Err(Error::msg(format!("Non-okay fetch for \'{}\': {}", sha1, code)))
+        }
+
         // Build path from name
         // copy git_dir to path
         let mut path = self.git_dir.clone();
         path.push(&sha1[..2]);
         fs::create_dir_all(&path)
             .with_context(|| format!("Unable to create object dir {:?}", &path))?;
+        // Open file
         debug!("Created dir {:?}", &path);
         path.push(&sha1[2..]);
         debug!("Object path is {:?}",path);
-        let mut f = fs::File::create(path).with_context(|| format!("Unable to open file writing for commit \'{}\'", sha1))?;
-        let code = self.bucket.get_object_stream_blocking(&sha1, &mut f)
-            .with_context(|| format!("Unable to fetch commit \'{}\'", sha1))?;
-        info!("Fetch for \'{}\': {}", sha1, code);
-        if code != 200 {
-            return Err(Error::msg(format!("Non-okay fetch for \'{}\': {}", sha1, code)))
-        }
-        Ok(())
+        let mut f = fs::File::create(path).with_context(|| format!("Unable to open file writing for object \'{}\'", sha1))?;
+        f.write_all(&data)?;
+
+        Ok((data))
     }
     /*
      * push +<src>:<dst>
