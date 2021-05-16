@@ -127,6 +127,8 @@ impl Remote {
      *
      * Needed by fetch
      */
+    /// This is a mess of copys and string passing for what should be byte arrays. I have no idea
+    /// how to clean it up at the moment
     pub fn fetch(&self, sha1: String, name: String) -> Result<()> {
         // Fetch commit
         self.fetch_commit(sha1)
@@ -135,6 +137,10 @@ impl Remote {
     fn fetch_commit(&self, sha1: String) -> Result<()> {
         let data = self.fetch_object(sha1.clone())
             .with_context(|| format!("Unable to fetch commit \'{}\'", &sha1))?;
+        // If we returned ok but w/ empty data the object already exists. Exit
+        if data.len() == 0 {
+            return Ok(())
+        }
 
         // Parse object, fetch deps
         let commit_obj = Commit::from_bytes(&data)?;
@@ -146,11 +152,16 @@ impl Remote {
             .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
         Ok(())
     }
+    /// Fetch a tree recursively
     fn fetch_tree(&self, sha1: String) -> Result<()> {
         let data = self.fetch_object(sha1.clone())
             .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))?;
+        // If we returned ok but w/ empty data the object already exists. Exit
+        if data.len() == 0 {
+            return Ok(())
+        }
 
-        // Parse object, fetch deps
+        // Parse tree, fetch deps
         let tree_obj = Tree::from_bytes(&data)?;
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
@@ -173,9 +184,21 @@ impl Remote {
     /// Blocks
     fn fetch_object(&self, sha1: String) -> Result<(Vec<u8>)> {
 
-        // TODO Check if already saved
+        // Build path from name
+        // copy git_dir to path
+        let mut path = self.git_dir.clone();
+        path.push(&sha1[..2]);
+        fs::create_dir_all(&path)
+            .with_context(|| format!("Unable to create object dir {:?}", &path))?;
+        // Get actual file name
+        path.push(&sha1[2..]);
 
-        // Get data
+        // Check file if already exists, return empty data
+        if path.exists() {
+            return Ok(Vec::new() as Vec<u8>)
+        }
+
+        // If not, get data
         let (data, code) = self.bucket.get_object_blocking(&sha1)
             .with_context(|| format!("Unable to fetch object\'{}\'", sha1))?;
         info!("Fetch for \'{}\': {}", sha1, code);
@@ -183,15 +206,8 @@ impl Remote {
             return Err(Error::msg(format!("Non-okay fetch for \'{}\': {}", sha1, code)))
         }
 
-        // Build path from name
-        // copy git_dir to path
-        let mut path = self.git_dir.clone();
-        path.push(&sha1[..2]);
-        fs::create_dir_all(&path)
-            .with_context(|| format!("Unable to create object dir {:?}", &path))?;
         // Open file
         debug!("Created dir {:?}", &path);
-        path.push(&sha1[2..]);
         debug!("Object path is {:?}",path);
         let mut f = fs::File::create(path).with_context(|| format!("Unable to open file writing for object \'{}\'", sha1))?;
         f.write_all(&data)?;
