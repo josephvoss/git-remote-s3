@@ -92,12 +92,20 @@ impl Remote {
     pub fn list(&self, include_head: bool) -> Result<()> {
         let results = self.bucket.list_blocking("refs/".to_string(), None)
             .with_context(|| "List command failed")?;
-        for (r, _) in results {
+        for (r, code) in results {
+            if code != 200 {
+                return Err(Error::msg(format!("Non-okay list for \'{}\': {}", "refs/", code)))
+            }
+            debug!("Result in list is {:?}", r);
             for object in r.contents {
-                let (data, _) = self.bucket.get_object_blocking(&object.key)
-                    .with_context(|| format!("Unable to list content for ref \'{}\'", object.key))?;
+                debug!("Content in list is {:?}", object);
+                let (data, code) = self.bucket.get_object_blocking(&object.key)
+                    .with_context(|| format!("Unable to list content for ref \'{}\'", &object.key))?;
+                if code != 200 {
+                    return Err(Error::msg(format!("Non-okay cat for \'{}\': {}", &object.key, code)))
+                }
                 let string_data = std::str::from_utf8(&data)?;
-                println!("{} {}", string_data, object.key);
+                println!("{} {}", string_data.trim(), object.key);
             }
         }
         Ok(())
@@ -234,8 +242,6 @@ impl Remote {
     // Order of uploads should be blob -> tree -> commits -> refs
     // i.e. small atomic objects first, nested objects and references last
     pub fn push(&self, src_string: String, dst_string: String, force_push: bool) -> Result<()> {
-        info!("Starting push");
-
         // Read local ref
         debug!("Reading local ref");
         // Build path
@@ -246,6 +252,7 @@ impl Remote {
 
         let push_sha = fs::read_to_string(path).with_context(|| format!("Unable to read ref {}", &src_string))?;
         let push_sha = push_sha.trim();
+        debug!("Local ref: {} to {}", &src_string, push_sha);
 
         // Push this commit
         self.upload_commit(push_sha.to_string())
@@ -256,31 +263,51 @@ impl Remote {
         let (_, code) = self.bucket.put_object_blocking(dst_string, push_sha.as_bytes())
             .with_context(|| format!("Unable to upload commit"))?;
         match code {
-            201 => Ok(()),
+            200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for \'{}\': {}", push_sha, code))),
         }
     }
+    /// Check if a passed sha exists in the configured bucket
+    fn check_hash_remote(&self, sha1: String) -> Result<(bool)> {
+        let results = self.bucket.list_blocking(sha1.clone(), None)
+            .with_context(|| format!("Check existence of remote object {} failed", &sha1))?;
+        debug!("Results of list is {:?}", &results);
+        for (r, code) in results {
+            if code != 200 {
+                return Err(Error::msg(format!("Non-okay list for \'{}\': {}", &sha1, code)))
+            }
+            debug!("Result in check is {:?}", r);
+            if r.contents.len() != 0 {
+                info!("Object {} exists remotely, exitting", &sha1);
+                return Ok(true)
+            }
+        }
+        Ok(false)
+    }
+
     /// Upload a commit if it doesn't exist remotely. Also verify all objects it describes exists
     /// (parents, tree)
     fn upload_commit(&self, sha1: String) -> Result<()> {
         // Load commit from sha
+        info!("Uploading {}", &sha1);
         let mut path = self.git_dir.clone(); path.push("objects");
         path.push(&sha1[..2]); path.push(&sha1[2..]);
         let data = fs::read(path).with_context(|| format!("Unable to read commit file {}", &sha1))?;
 
         // Check if exists. If so, exit
-        let results = self.bucket.list_blocking(sha1.clone(), None)
-            .with_context(|| "Check commit command failed")?;
-        if results.len() != 0 {
+        if self.check_hash_remote(sha1.clone())
+            .with_context(|| "Unable to check state of commit")? {
             return Ok(())
         }
 
         // Parse the object
-        let commit_obj = Commit::from_bytes(&data)?;
+        let commit_obj = Commit::from_bytes(&data)
+            .with_context(|| "Unable to parse commit")?;
         // Upload commit
 
         // Parse tree, fetch deps
-        self.upload_tree(commit_obj.tree().to_sha1_hex_string())?;
+        self.upload_tree(commit_obj.tree().to_sha1_hex_string())
+            .with_context(|| "Unable to upload tree")?;
         commit_obj.parents()
             .map(|obj| self.upload_commit(obj.to_sha1_hex_string()))
             .collect::<Result<()>>()
@@ -290,22 +317,22 @@ impl Remote {
         let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
             .with_context(|| format!("Unable to upload commit"))?;
         match code {
-            201 => Ok(()),
+            200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for commit \'{}\': {}", &sha1, code))),
         }
     }
     /// Upload a tree if it doesn't exist remotely. Also verify all objects it describes exists
     /// (subtrees, blobs)
     fn upload_tree(&self, sha1: String) -> Result<()> {
+        info!("Uploading tree {}", &sha1);
         // Load tree from sha
         let mut path = self.git_dir.clone(); path.push("objects");
         path.push(&sha1[..2]); path.push(&sha1[2..]);
         let data = fs::read(path).with_context(|| format!("Unable to read tree file {}", &sha1))?;
 
         // Check if exists. If so, exit
-        let results = self.bucket.list_blocking(sha1.clone(), None)
-            .with_context(|| "Check commit command failed")?;
-        if results.len() != 0 {
+        if self.check_hash_remote(sha1.clone())
+            .with_context(|| "Unable to check state of commit")? {
             return Ok(())
         }
 
@@ -331,7 +358,7 @@ impl Remote {
         let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
             .with_context(|| format!("Unable to upload tree"))?;
         match code {
-            201 => Ok(()),
+            200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for tree \'{}\': {}", &sha1, code))),
         }
     }
@@ -343,16 +370,15 @@ impl Remote {
         let data = fs::read(path).with_context(|| format!("Unable to read blob file {}", &sha1))?;
 
         // Check if exists. If so, exit
-        let results = self.bucket.list_blocking(sha1.clone(), None)
-            .with_context(|| "Check commit command failed")?;
-        if results.len() != 0 {
+        if self.check_hash_remote(sha1.clone())
+            .with_context(|| "Unable to check state of commit")? {
             return Ok(())
         }
         // Otherwise, upload
         let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
             .with_context(|| format!("Unable to upload blob"))?;
         match code {
-            201 => Ok(()),
+            200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for blob \'{}\': {}", &sha1, code))),
         }
     }
@@ -365,6 +391,7 @@ impl Remote {
             // Read next line from stdin
             io::stdin().read_line(&mut buffer)
                 .with_context(|| format!("Could not read line from stdin"))?;
+            info!("Line is: {:?}", &buffer);
 
             // Split it by space, trim whitespace, build into vector
             let line_vec = buffer.split(" ").map(|x| x.trim()).collect::<Vec<_>>();
@@ -447,6 +474,7 @@ impl Remote {
             match result {
                 Ok(()) => {
                     info!("Ran command {} successfully", command);
+                    println!();
                 }
                 _ => {
                     error!("Error found running {}: {:?}", command, result);
