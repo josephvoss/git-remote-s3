@@ -135,15 +135,17 @@ impl Remote {
     }
     /// Fetch a commit, and all objects it depends on
     fn fetch_commit(&self, sha1: String) -> Result<()> {
-        let data = self.fetch_object(sha1.clone())
-            .with_context(|| format!("Unable to fetch commit \'{}\'", &sha1))?;
-        // If we returned ok but w/ empty data the object already exists. Exit
-        if data.len() == 0 {
-            return Ok(())
-        }
+        let data: Vec<u8> = match self.fetch_object(sha1.clone())
+            .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))? {
+            Some(d) => d,
+            // If we returned ok but w/ empty data the object already exists. Exit
+            None => return Ok(()),
+        };
 
+        debug!("{} was a commit. Parsing", sha1);
         // Parse object, fetch deps
         let commit_obj = Commit::from_bytes(&data)?;
+        debug!("Searching for children of {}", sha1);
         self.fetch_tree(std::str::from_utf8(&commit_obj.tree().to_sha1_hex())?.to_string())
             .with_context(|| format!("Unable to fetch tree for commit \'{}\'", &sha1))?;
         commit_obj.parents()
@@ -154,15 +156,17 @@ impl Remote {
     }
     /// Fetch a tree recursively
     fn fetch_tree(&self, sha1: String) -> Result<()> {
-        let data = self.fetch_object(sha1.clone())
-            .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))?;
-        // If we returned ok but w/ empty data the object already exists. Exit
-        if data.len() == 0 {
-            return Ok(())
-        }
+        let data: Vec<u8> = match self.fetch_object(sha1.clone())
+            .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))? {
+            Some(d) => d,
+            // If we returned ok but w/ empty data the object already exists. Exit
+            None => return Ok(()),
+        };
 
+        debug!("{} was a tree. Parsing", sha1);
         // Parse tree, fetch deps
         let tree_obj = Tree::from_bytes(&data)?;
+        debug!("Searching for children of {}", sha1);
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
             .map(|e| {
@@ -182,7 +186,8 @@ impl Remote {
     }
     /// Fetch an object from remote by SHA, save to local git object store.
     /// Blocks
-    fn fetch_object(&self, sha1: String) -> Result<(Vec<u8>)> {
+    fn fetch_object(&self, sha1: String) -> Result<(Option<(Vec<u8>)>)> {
+        debug!("Fetching object {}", sha1);
 
         // Build path from name
         // copy git_dir to path
@@ -193,9 +198,9 @@ impl Remote {
         // Get actual file name
         path.push(&sha1[2..]);
 
-        // Check file if already exists, return empty data
+        // Check file if already exists, return None
         if path.exists() {
-            return Ok(Vec::new() as Vec<u8>)
+            return Ok(None)
         }
 
         // If not, get data
@@ -212,7 +217,7 @@ impl Remote {
         let mut f = fs::File::create(path).with_context(|| format!("Unable to open file writing for object \'{}\'", sha1))?;
         f.write_all(&data)?;
 
-        Ok((data))
+        Ok(Some(data))
     }
     /*
      * push +<src>:<dst>
@@ -277,6 +282,13 @@ impl Remote {
                 },
                 "push" => {
                     info!("Starting push");
+     //* push +<src>:<dst>
+                    if line_vec.len() < 2 {
+                        return Err(Error::msg(format!("Push command has invalid args: {:?}", line_vec)))
+                    }
+                    let mut colon_iter = line_vec[1].split(':');
+                    let src_str = colon_iter.next();
+                    let dst_str = colon_iter.next();
                     self.push()
                 },
                 _ => {
