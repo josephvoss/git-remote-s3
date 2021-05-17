@@ -43,9 +43,14 @@ impl Remote {
     pub fn new(opts: cli::Opts) -> Result<Self> {
         info!("Creating new remote with opts: {:?}", opts);
 
+        // Build top level path
         let git_dir = PathBuf::from(opts.git_dir);
         info!("GIT_DIR is \"{}\"", git_dir.to_str().unwrap());
 
+        // Build object DB path
+        let mut obj_dir = git_dir.clone(); obj_dir.push("objects");
+
+        // Build bucket
         let (profile_name, endpoint_url, bucket_name, bucket_style) =
             parse_remote_url(opts.remote_url)
             .with_context(|| format!("Unable to parse remote URL"))?;
@@ -58,7 +63,7 @@ impl Remote {
             &bucket_name, profile_name, &endpoint_url, bucket_style
         )?;
         debug!("Bucket is {:?}", bucket);
-        Ok( Remote { git_dir: git_dir.clone(), bucket: bucket, git_loose_odb: Db {path: git_dir }} )
+        Ok( Remote { git_dir: git_dir.clone(), bucket: bucket, git_loose_odb: Db{path: obj_dir}} )
     }
     /// List supported commands
     pub fn capabilities(&self) -> Result<()> {
@@ -292,17 +297,16 @@ impl Remote {
     fn upload_commit(&self, sha1: String) -> Result<()> {
         // Load commit from sha
         info!("Uploading {}", &sha1);
-        let mut data = Vec::<u8>::new();
+        let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load commit into ObjectId"))?;
-        let new_obj = self.git_loose_odb.find(id, &mut data.clone())
-            .with_context(|| format!("Unable to read new file {}", &sha1))?;
+        debug!("Object id is {:?}", id);
+        debug!("SHA {}found in local DB", if self.git_loose_odb.contains(id) {""} else {"not "});
+        let new_obj = self.git_loose_odb.find(id, &mut buf)
+            .with_context(|| "Unable to search local database")?;
         let new_obj = match new_obj {
             Some(s) => s,
-            None => return Err(Error::msg(format!("object not loaded"))),
+            None => return Err(Error::msg("object not found in database")),
         };
-//        let commit_obj = commit_obj.decode().with_context(|| "Unable to decode commit")?;
-
-
 
         // Check if exists. If so, exit
         if self.check_hash_remote(sha1.clone())
@@ -324,7 +328,7 @@ impl Remote {
             .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
 
         // Now upload
-        let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
+        let (_, code) = self.bucket.put_object_blocking(&sha1, &new_obj.data)
             .with_context(|| format!("Unable to upload commit"))?;
         match code {
             200 => Ok(()),
@@ -336,10 +340,16 @@ impl Remote {
     fn upload_tree(&self, sha1: String) -> Result<()> {
         info!("Uploading tree {}", &sha1);
         // Load tree from sha
-        let mut data = Vec::<u8>::new();
+        let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
-        let _obj = self.git_loose_odb.find(id, &mut data)
-            .with_context(|| format!("Unable to read tree file {}", &sha1))?;
+        debug!("Object id is {:?}", id);
+        debug!("SHA {}found in local DB", if self.git_loose_odb.contains(id) {""} else {"not "});
+        let new_obj = self.git_loose_odb.find(id, &mut buf)
+            .with_context(|| "Unable to search local database")?;
+        let new_obj = match new_obj {
+            Some(s) => s,
+            None => return Err(Error::msg("object not found in database")),
+        };
 
         // Check if exists. If so, exit
         if self.check_hash_remote(sha1.clone())
@@ -348,7 +358,7 @@ impl Remote {
         }
 
         // Parse the object
-        let tree_obj = Tree::from_bytes(&data)?;
+        let tree_obj = Tree::from_bytes(new_obj.data)?;
         debug!("Searching for children of {}", &sha1);
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
@@ -366,7 +376,7 @@ impl Remote {
             .collect::<Result<()>>()
             .with_context(|| format!("Unable to push entries for tree \'{}\'", &sha1))?;
         // Now upload
-        let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
+        let (_, code) = self.bucket.put_object_blocking(&sha1, &new_obj.data)
             .with_context(|| format!("Unable to upload tree"))?;
         match code {
             200 => Ok(()),
@@ -376,10 +386,16 @@ impl Remote {
     /// Upload a blob if it doesn't exist remotely
     fn upload_blob(&self, sha1: String) -> Result<()> {
         // Load blob from sha
-        let mut data = Vec::<u8>::new();
-        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load blob into ObjectId"))?;
-        let _obj = self.git_loose_odb.find(id, &mut data)
-            .with_context(|| format!("Unable to read blob file {}", &sha1))?;
+        let mut buf = Vec::new();
+        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
+        debug!("Object id is {:?}", id);
+        debug!("SHA {}found in local DB", if self.git_loose_odb.contains(id) {""} else {"not "});
+        let new_obj = self.git_loose_odb.find(id, &mut buf)
+            .with_context(|| "Unable to search local database")?;
+        let new_obj = match new_obj {
+            Some(s) => s,
+            None => return Err(Error::msg("object not found in database")),
+        };
 
         // Check if exists. If so, exit
         if self.check_hash_remote(sha1.clone())
@@ -387,7 +403,7 @@ impl Remote {
             return Ok(())
         }
         // Otherwise, upload
-        let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
+        let (_, code) = self.bucket.put_object_blocking(&sha1, &new_obj.data)
             .with_context(|| format!("Unable to upload blob"))?;
         match code {
             200 => Ok(()),
