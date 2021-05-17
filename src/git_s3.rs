@@ -16,7 +16,8 @@ use s3::region::Region;
 use s3::S3Error;
 
 use git_object::immutable::{Blob, Commit, Object, Tree};
-use git_hash::ObjectId;
+use git_hash::{ObjectId, oid};
+use git_odb::loose::Db;
 
 /// Struct containing data needed for methods
 pub struct Remote {
@@ -26,6 +27,7 @@ pub struct Remote {
     git_dir: PathBuf,
     /// Bucket we're communicating with
     bucket: Bucket,
+    git_loose_odb: Db,
 }
 
 #[derive(Debug,PartialEq)]
@@ -56,7 +58,7 @@ impl Remote {
             &bucket_name, profile_name, &endpoint_url, bucket_style
         )?;
         debug!("Bucket is {:?}", bucket);
-        Ok( Remote { git_dir: git_dir, bucket: bucket } )
+        Ok( Remote { git_dir: git_dir.clone(), bucket: bucket, git_loose_odb: Db {path: git_dir }} )
     }
     /// List supported commands
     pub fn capabilities(&self) -> Result<()> {
@@ -290,9 +292,17 @@ impl Remote {
     fn upload_commit(&self, sha1: String) -> Result<()> {
         // Load commit from sha
         info!("Uploading {}", &sha1);
-        let mut path = self.git_dir.clone(); path.push("objects");
-        path.push(&sha1[..2]); path.push(&sha1[2..]);
-        let data = fs::read(path).with_context(|| format!("Unable to read commit file {}", &sha1))?;
+        let mut data = Vec::<u8>::new();
+        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load commit into ObjectId"))?;
+        let new_obj = self.git_loose_odb.find(id, &mut data.clone())
+            .with_context(|| format!("Unable to read new file {}", &sha1))?;
+        let new_obj = match new_obj {
+            Some(s) => s,
+            None => return Err(Error::msg(format!("object not loaded"))),
+        };
+//        let commit_obj = commit_obj.decode().with_context(|| "Unable to decode commit")?;
+
+
 
         // Check if exists. If so, exit
         if self.check_hash_remote(sha1.clone())
@@ -301,7 +311,7 @@ impl Remote {
         }
 
         // Parse the object
-        let commit_obj = Commit::from_bytes(&data)
+        let commit_obj = Commit::from_bytes(new_obj.data)
             .with_context(|| "Unable to parse commit")?;
         // Upload commit
 
@@ -326,13 +336,14 @@ impl Remote {
     fn upload_tree(&self, sha1: String) -> Result<()> {
         info!("Uploading tree {}", &sha1);
         // Load tree from sha
-        let mut path = self.git_dir.clone(); path.push("objects");
-        path.push(&sha1[..2]); path.push(&sha1[2..]);
-        let data = fs::read(path).with_context(|| format!("Unable to read tree file {}", &sha1))?;
+        let mut data = Vec::<u8>::new();
+        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
+        let _obj = self.git_loose_odb.find(id, &mut data)
+            .with_context(|| format!("Unable to read tree file {}", &sha1))?;
 
         // Check if exists. If so, exit
         if self.check_hash_remote(sha1.clone())
-            .with_context(|| "Unable to check state of commit")? {
+            .with_context(|| "Unable to check state of tree")? {
             return Ok(())
         }
 
@@ -365,9 +376,10 @@ impl Remote {
     /// Upload a blob if it doesn't exist remotely
     fn upload_blob(&self, sha1: String) -> Result<()> {
         // Load blob from sha
-        let mut path = self.git_dir.clone(); path.push("objects");
-        path.push(&sha1[..2]); path.push(&sha1[2..]);
-        let data = fs::read(path).with_context(|| format!("Unable to read blob file {}", &sha1))?;
+        let mut data = Vec::<u8>::new();
+        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load blob into ObjectId"))?;
+        let _obj = self.git_loose_odb.find(id, &mut data)
+            .with_context(|| format!("Unable to read blob file {}", &sha1))?;
 
         // Check if exists. If so, exit
         if self.check_hash_remote(sha1.clone())
