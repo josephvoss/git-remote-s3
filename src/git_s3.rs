@@ -191,8 +191,7 @@ impl Remote {
 
         // Build path from name
         // copy git_dir to path
-        let mut path = self.git_dir.clone();
-        path.push(&sha1[..2]);
+        let mut path = self.git_dir.clone(); path.push("objects"); path.push(&sha1[..2]);
         fs::create_dir_all(&path)
             .with_context(|| format!("Unable to create object dir {:?}", &path))?;
         // Get actual file name
@@ -232,8 +231,130 @@ impl Remote {
      *
      * Needed by push
      */
+    // Order of uploads should be blob -> tree -> commits -> refs
+    // i.e. small atomic objects first, nested objects and references last
     pub fn push(&self, src_string: String, dst_string: String, force_push: bool) -> Result<()> {
-        Ok(())
+        info!("Starting push");
+
+        // Read local ref
+        debug!("Reading local ref");
+        // Build path
+        let mut path = self.git_dir.clone(); path.push(&src_string);
+        if !path.exists() {
+            return Err(Error::msg(format!("Unable to find local ref for {}", &src_string)))
+        }
+
+        let push_sha = fs::read_to_string(path).with_context(|| format!("Unable to read ref {}", &src_string))?;
+        let push_sha = push_sha.trim();
+
+        // Push this commit
+        self.upload_commit(push_sha.to_string())
+            .with_context(|| format!("Unable to upload commit for {}", &src_string))?;
+
+        // Finally, update the ref
+        // TODO - verify it's a fast forward
+        let (_, code) = self.bucket.put_object_blocking(dst_string, push_sha.as_bytes())
+            .with_context(|| format!("Unable to upload commit"))?;
+        match code {
+            201 => Ok(()),
+            _ => Err(Error::msg(format!("Non-okay push for \'{}\': {}", push_sha, code))),
+        }
+    }
+    /// Upload a commit if it doesn't exist remotely. Also verify all objects it describes exists
+    /// (parents, tree)
+    fn upload_commit(&self, sha1: String) -> Result<()> {
+        // Load commit from sha
+        let mut path = self.git_dir.clone(); path.push("objects");
+        path.push(&sha1[..2]); path.push(&sha1[2..]);
+        let data = fs::read(path).with_context(|| format!("Unable to read commit file {}", &sha1))?;
+
+        // Check if exists. If so, exit
+        let results = self.bucket.list_blocking(sha1.clone(), None)
+            .with_context(|| "Check commit command failed")?;
+        if results.len() != 0 {
+            return Ok(())
+        }
+
+        // Parse the object
+        let commit_obj = Commit::from_bytes(&data)?;
+        // Upload commit
+
+        // Parse tree, fetch deps
+        self.upload_tree(commit_obj.tree().to_sha1_hex_string())?;
+        commit_obj.parents()
+            .map(|obj| self.upload_commit(obj.to_sha1_hex_string()))
+            .collect::<Result<()>>()
+            .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
+
+        // Now upload
+        let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
+            .with_context(|| format!("Unable to upload commit"))?;
+        match code {
+            201 => Ok(()),
+            _ => Err(Error::msg(format!("Non-okay push for commit \'{}\': {}", &sha1, code))),
+        }
+    }
+    /// Upload a tree if it doesn't exist remotely. Also verify all objects it describes exists
+    /// (subtrees, blobs)
+    fn upload_tree(&self, sha1: String) -> Result<()> {
+        // Load tree from sha
+        let mut path = self.git_dir.clone(); path.push("objects");
+        path.push(&sha1[..2]); path.push(&sha1[2..]);
+        let data = fs::read(path).with_context(|| format!("Unable to read tree file {}", &sha1))?;
+
+        // Check if exists. If so, exit
+        let results = self.bucket.list_blocking(sha1.clone(), None)
+            .with_context(|| "Check commit command failed")?;
+        if results.len() != 0 {
+            return Ok(())
+        }
+
+        // Parse the object
+        let tree_obj = Tree::from_bytes(&data)?;
+        debug!("Searching for children of {}", &sha1);
+        // Iter over entries, fetch tree or object
+        tree_obj.entries.iter()
+            .map(|e| {
+                 let sha1 = std::str::from_utf8(&e.oid.to_sha1_hex())?.to_string();
+                 if e.mode.is_tree() {
+                     self.upload_tree(sha1.clone())
+                 } else {
+                     match self.upload_blob(sha1) {
+                         Ok(_) => Ok(()),
+                         Err(error) => Err(error),
+                     }
+                 }
+            })
+            .collect::<Result<()>>()
+            .with_context(|| format!("Unable to push entries for tree \'{}\'", &sha1))?;
+        // Now upload
+        let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
+            .with_context(|| format!("Unable to upload tree"))?;
+        match code {
+            201 => Ok(()),
+            _ => Err(Error::msg(format!("Non-okay push for tree \'{}\': {}", &sha1, code))),
+        }
+    }
+    /// Upload a blob if it doesn't exist remotely
+    fn upload_blob(&self, sha1: String) -> Result<()> {
+        // Load blob from sha
+        let mut path = self.git_dir.clone(); path.push("objects");
+        path.push(&sha1[..2]); path.push(&sha1[2..]);
+        let data = fs::read(path).with_context(|| format!("Unable to read blob file {}", &sha1))?;
+
+        // Check if exists. If so, exit
+        let results = self.bucket.list_blocking(sha1.clone(), None)
+            .with_context(|| "Check commit command failed")?;
+        if results.len() != 0 {
+            return Ok(())
+        }
+        // Otherwise, upload
+        let (_, code) = self.bucket.put_object_blocking(&sha1, &data)
+            .with_context(|| format!("Unable to upload blob"))?;
+        match code {
+            201 => Ok(()),
+            _ => Err(Error::msg(format!("Non-okay push for blob \'{}\': {}", &sha1, code))),
+        }
     }
 
     pub fn run(&self) -> Result<()> {
