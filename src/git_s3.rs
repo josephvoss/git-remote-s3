@@ -16,6 +16,7 @@ use s3::region::Region;
 use s3::S3Error;
 
 use git_object::immutable::{Blob, Commit, Object, Tree};
+use git_object::Kind;
 use git_hash::{ObjectId, oid};
 use git_odb::loose::Db;
 
@@ -150,8 +151,8 @@ impl Remote {
     }
     /// Fetch a commit, and all objects it depends on
     fn fetch_commit(&self, sha1: String) -> Result<()> {
-        let data: Vec<u8> = match self.fetch_object(sha1.clone())
-            .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))? {
+        let data: Vec<u8> = match self.fetch_object(sha1.clone(), Kind::Commit)
+            .with_context(|| format!("Unable to fetch commit \'{}\'", &sha1))? {
             Some(d) => d,
             // If we returned ok but w/ empty data the object already exists. Exit
             None => return Ok(()),
@@ -171,7 +172,7 @@ impl Remote {
     }
     /// Fetch a tree recursively
     fn fetch_tree(&self, sha1: String) -> Result<()> {
-        let data: Vec<u8> = match self.fetch_object(sha1.clone())
+        let data: Vec<u8> = match self.fetch_object(sha1.clone(), Kind::Tree)
             .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))? {
             Some(d) => d,
             // If we returned ok but w/ empty data the object already exists. Exit
@@ -189,7 +190,7 @@ impl Remote {
                  if e.mode.is_tree() {
                      self.fetch_tree(sha1.clone())
                  } else {
-                     match self.fetch_object(sha1.clone()) {
+                     match self.fetch_object(sha1.clone(), Kind::Blob) {
                          Ok(_) => Ok(()),
                          Err(error) => Err(error),
                      }
@@ -201,19 +202,14 @@ impl Remote {
     }
     /// Fetch an object from remote by SHA, save to local git object store.
     /// Blocks
-    fn fetch_object(&self, sha1: String) -> Result<(Option<(Vec<u8>)>)> {
+    fn fetch_object(&self, sha1: String, obj_type: Kind) -> Result<(Option<(Vec<u8>)>)> {
         debug!("Fetching object {}", sha1);
 
-        // Build path from name
-        // copy git_dir to path
-        let mut path = self.git_dir.clone(); path.push("objects"); path.push(&sha1[..2]);
-        fs::create_dir_all(&path)
-            .with_context(|| format!("Unable to create object dir {:?}", &path))?;
-        // Get actual file name
-        path.push(&sha1[2..]);
+        // Build oid
+        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
 
-        // Check file if already exists, return None
-        if path.exists() {
+        // Check ref if already exists, return None if true
+        if self.git_loose_odb.contains(id) {
             return Ok(None)
         }
 
@@ -225,13 +221,15 @@ impl Remote {
             return Err(Error::msg(format!("Non-okay fetch for \'{}\': {}", sha1, code)))
         }
 
-        // Open file
-        debug!("Created dir {:?}", &path);
-        debug!("Object path is {:?}",path);
-        let mut f = fs::File::create(path).with_context(|| format!("Unable to open file writing for object \'{}\'", sha1))?;
-        f.write_all(&data)?;
+        // Save to git database
+        {
+            use git_odb::Write;
+            use git_hash::Kind;
+            let new_obj = self.git_loose_odb.write_buf(obj_type, &data, Kind::Sha1)
+                .with_context(|| format!("Unable to write to git database"))?;
+        };
 
-        Ok(Some(data))
+        Ok((Some(data)))
     }
     /*
      * push +<src>:<dst>
@@ -385,6 +383,7 @@ impl Remote {
     }
     /// Upload a blob if it doesn't exist remotely
     fn upload_blob(&self, sha1: String) -> Result<()> {
+        info!("Uploading blob {}", &sha1);
         // Load blob from sha
         let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
