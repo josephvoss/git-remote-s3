@@ -232,7 +232,7 @@ impl Remote {
      *
      * Needed by push
      */
-    pub fn push(&self) -> Result<()> {
+    pub fn push(&self, src_string: String, dst_string: String, force_push: bool) -> Result<()> {
         Ok(())
     }
 
@@ -273,6 +273,8 @@ impl Remote {
                 */
                 "fetch" => {
                     info!("Starting fetch");
+                    // Parse for fetch
+                    // TODO error catch
                     if line_vec.len() < 3 {
                         return Err(Error::msg(format!("Fetch command has invalid args: {:?}", line_vec)))
                     }
@@ -282,14 +284,38 @@ impl Remote {
                 },
                 "push" => {
                     info!("Starting push");
-     //* push +<src>:<dst>
+
+                    // Parse for push
+                    // TODO anyway to do this w/ less :gross: matches?
+                    let parsing_err = Err(Error::msg(format!("Push command has invalid args: {:?}", line_vec)));
                     if line_vec.len() < 2 {
-                        return Err(Error::msg(format!("Push command has invalid args: {:?}", line_vec)))
+                        return parsing_err
                     }
                     let mut colon_iter = line_vec[1].split(':');
-                    let src_str = colon_iter.next();
-                    let dst_str = colon_iter.next();
-                    self.push()
+                    // Get src w/ unknown force prefix
+                    let src_str_unk = match colon_iter.next() {
+                        Some(s) => s,
+                        _ => return parsing_err
+                    };
+                    // Key off force push
+                    let force_push = match src_str_unk.chars().next() {
+                        Some('+') => true,
+                        Some(_) => false,
+                        _ => return parsing_err
+                    };
+                    // Remove src prefix if it exists
+                    let src_str = match src_str_unk.strip_prefix('+') {
+                        Some(s) => s,
+                        None => src_str_unk
+                    }.to_string();
+                    // Get regular dst
+                    let dst_str = match colon_iter.next() {
+                        Some(s) => s,
+                        _ => return parsing_err
+                    }.to_string();
+
+                    info!("Pushing {} to {} {}", src_str, dst_str, if force_push {"forcefully"} else {""});
+                    self.push(src_str, dst_str, force_push)
                 },
                 _ => {
                     info!("No matching command found for: {}", command);
