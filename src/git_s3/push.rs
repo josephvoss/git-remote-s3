@@ -23,7 +23,7 @@ impl Remote {
      */
     // Order of uploads should be blob -> tree -> commits -> refs
     // i.e. small atomic objects first, nested objects and references last
-    pub fn push(&self, src_string: String, dst_string: String, force_push: bool) -> Result<()> {
+    pub fn push(&self, src_string: &str, dst_string: &str, force_push: bool) -> Result<()> {
         // Read local ref
         debug!("Reading local ref");
         // Build path
@@ -37,7 +37,7 @@ impl Remote {
         debug!("Local ref: {} to {}", &src_string, push_sha);
 
         // Push this commit
-        self.upload_commit(push_sha.to_string())
+        self.upload_commit(push_sha)
             .with_context(|| format!("Unable to upload commit for {}", &src_string))?;
 
         // Finally, update the ref
@@ -49,9 +49,10 @@ impl Remote {
             _ => Err(Error::msg(format!("Non-okay push for \'{}\': {}", push_sha, code))),
         }
     }
+
     /// Check if a passed sha exists in the configured bucket
-    fn check_hash_remote(&self, sha1: String) -> Result<bool> {
-        let results = self.bucket.list_blocking(sha1.clone(), None)
+    fn check_hash_remote(&self, sha1: &str) -> Result<bool> {
+        let results = self.bucket.list_blocking(sha1.to_string(), None)
             .with_context(|| format!("Check existence of remote object {} failed", &sha1))?;
         debug!("Results of list is {:?}", &results);
         for (r, code) in results {
@@ -69,7 +70,7 @@ impl Remote {
 
     /// Upload a commit if it doesn't exist remotely. Also verify all objects it describes exists
     /// (parents, tree)
-    fn upload_commit(&self, sha1: String) -> Result<()> {
+    fn upload_commit(&self, sha1: &str) -> Result<()> {
         // Load commit from sha
         info!("Uploading {}", &sha1);
         let mut buf = Vec::new();
@@ -94,10 +95,10 @@ impl Remote {
         // Upload commit
 
         // Parse tree, fetch deps
-        self.upload_tree(commit_obj.tree().to_sha1_hex_string())
+        self.upload_tree(&commit_obj.tree().to_sha1_hex_string())
             .with_context(|| "Unable to upload tree")?;
         commit_obj.parents()
-            .map(|obj| self.upload_commit(obj.to_sha1_hex_string()))
+            .map(|obj| self.upload_commit(&obj.to_sha1_hex_string()))
             .collect::<Result<()>>()
             .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
 
@@ -111,7 +112,7 @@ impl Remote {
     }
     /// Upload a tree if it doesn't exist remotely. Also verify all objects it describes exists
     /// (subtrees, blobs)
-    fn upload_tree(&self, sha1: String) -> Result<()> {
+    fn upload_tree(&self, sha1: &str) -> Result<()> {
         info!("Uploading tree {}", &sha1);
         // Load tree from sha
         let mut buf = Vec::new();
@@ -136,9 +137,11 @@ impl Remote {
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
             .map(|e| {
-                 let sha1 = std::str::from_utf8(&e.oid.to_sha1_hex())?.to_string();
+                 let sha1_bytes = e.oid.to_sha1_hex();
+                 let sha1 = std::str::from_utf8(&sha1_bytes)
+                     .context("Unable to parse sha from child of tree")?;
                  if e.mode.is_tree() {
-                     self.upload_tree(sha1.clone())
+                     self.upload_tree(sha1)
                  } else {
                      match self.upload_blob(sha1) {
                          Ok(_) => Ok(()),
@@ -157,7 +160,7 @@ impl Remote {
         }
     }
     /// Upload a blob if it doesn't exist remotely
-    fn upload_blob(&self, sha1: String) -> Result<()> {
+    fn upload_blob(&self, sha1: &str) -> Result<()> {
         info!("Uploading blob {}", &sha1);
         // Load blob from sha
         let mut buf = Vec::new();

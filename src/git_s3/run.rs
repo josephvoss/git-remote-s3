@@ -5,7 +5,7 @@ use log::{debug, info, error};
 use std::io;
 
 impl Remote {
-    /// List supported commands
+    /// List commands supported by this helper. Currently fetch and push.
     pub fn capabilities(&self) -> Result<()> {
         // println!("option");
         println!("fetch");
@@ -75,17 +75,19 @@ impl Remote {
     pub fn run(&self) -> Result<()> {
         loop {
             info!("Reading new line from stdin");
-            let mut buffer = String::new();
+            let mut buf = String::new();
 
             // Read next line from stdin
-            io::stdin().read_line(&mut buffer)
+            io::stdin().read_line(&mut buf)
                 .with_context(|| format!("Could not read line from stdin"))?;
-            info!("Line is: {:?}", &buffer);
+            info!("Line is: {:?}", &buf);
 
-            // Split it by space, trim whitespace, build into vector
-            let line_vec = buffer.split(" ").map(|x| x.trim()).collect::<Vec<_>>();
-            debug!("Line split vector is: {:?}", line_vec);
-            let command = line_vec[0];
+            // Split it by space, trim whitespace
+            let mut line_vec = buf
+                .split(" ")
+                .map(|x| x.trim());
+            let command = line_vec.next()
+                .ok_or(Error::msg(format!("Invalid command: {}", buf)))?;
 
             // Run it
             let result = match command {
@@ -95,8 +97,8 @@ impl Remote {
                 },
                 "list" => {
                     info!("Starting list");
-                    let for_push: bool = match line_vec.last() {
-                        Some(s) => s.to_string() == "for-push",
+                    let for_push: bool = match line_vec.next() {
+                        Some(s) => s == "for-push",
                         None => false,
                     };
                     if for_push {info!("For-push")};
@@ -111,45 +113,40 @@ impl Remote {
                 "fetch" => {
                     info!("Starting fetch");
                     // Parse for fetch
-                    // TODO error catch
-                    if line_vec.len() < 3 {
-                        return Err(Error::msg(format!("Fetch command has invalid args: {:?}", line_vec)))
-                    }
-                    let sha = line_vec[1].to_string();
-                    let name = line_vec[2].to_string();
+                    let fetch_err = "Fetch command has invalid arg";
+                    let sha = line_vec.next()
+                        .ok_or(Error::msg(format!("{} for sha: {}", fetch_err, buf)))?;
+                    let name = line_vec.next()
+                        .ok_or(Error::msg(format!("{} for name: {}", fetch_err, buf)))?;
                     self.fetch(sha, name)
                 },
                 "push" => {
                     info!("Starting push");
 
                     // Parse for push
-                    // TODO anyway to do this w/ less :gross: matches?
-                    let parsing_err = Err(Error::msg(format!("Push command has invalid args: {:?}", line_vec)));
-                    if line_vec.len() < 2 {
-                        return parsing_err
-                    }
-                    let mut colon_iter = line_vec[1].split(':');
+                    let push_err = "Push command has invalid arg";
+                    let mut colon_iter = line_vec.next()
+                        .ok_or(Error::msg(format!("{} from colon split: {}", push_err, buf)))?
+                        .split(':');
                     // Get src w/ unknown force prefix
-                    let src_str_unk = match colon_iter.next() {
-                        Some(s) => s,
-                        _ => return parsing_err
-                    };
+                    let src_str_unk = colon_iter.next()
+                        .ok_or(Error::msg(format!("{} from src parsing: {}", push_err, buf)))?;
                     // Key off force push
                     let force_push = match src_str_unk.chars().next() {
                         Some('+') => true,
                         Some(_) => false,
-                        _ => return parsing_err
+                        _ => return Err(Error::msg(format!("{} from force-push parsing: {}", push_err, buf))),
                     };
                     // Remove src prefix if it exists
                     let src_str = match src_str_unk.strip_prefix('+') {
                         Some(s) => s,
                         None => src_str_unk
-                    }.to_string();
+                    };
                     // Get regular dst
                     let dst_str = match colon_iter.next() {
                         Some(s) => s,
-                        _ => return parsing_err
-                    }.to_string();
+                        _ => return Err(Error::msg(format!("{} from dst parsing: {}", push_err, buf))),
+                    };
 
                     info!("Pushing {} to {} {}", src_str, dst_str, if force_push {"forcefully"} else {""});
                     self.push(src_str, dst_str, force_push)

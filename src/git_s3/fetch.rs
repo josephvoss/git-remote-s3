@@ -19,12 +19,12 @@ impl Remote {
      */
     /// This is a mess of copys and string passing for what should be byte arrays. I have no idea
     /// how to clean it up at the moment
-    pub fn fetch(&self, sha1: String, name: String) -> Result<()> {
+    pub fn fetch(&self, sha1: &str, name: &str) -> Result<()> {
         // Fetch commit
         self.fetch_commit(sha1)
     }
     /// Fetch a commit, and all objects it depends on
-    fn fetch_commit(&self, sha1: String) -> Result<()> {
+    fn fetch_commit(&self, sha1: &str) -> Result<()> {
         let data: Vec<u8> = match self.fetch_object(sha1.clone(), Kind::Commit)
             .with_context(|| format!("Unable to fetch commit \'{}\'", &sha1))? {
             Some(d) => d,
@@ -36,18 +36,18 @@ impl Remote {
         // Parse object, fetch deps
         let commit_obj = Commit::from_bytes(&data)?;
         debug!("Searching for children of {}", sha1);
-        self.fetch_tree(std::str::from_utf8(&commit_obj.tree().to_sha1_hex())?.to_string())
+        self.fetch_tree(std::str::from_utf8(&commit_obj.tree().to_sha1_hex())?)
             .with_context(|| format!("Unable to fetch tree for commit \'{}\'", &sha1))?;
         commit_obj.parents()
-            .map(|obj| self.fetch_commit(std::str::from_utf8(&obj.to_sha1_hex())?.to_string()))
+            .map(|obj| self.fetch_commit(std::str::from_utf8(&obj.to_sha1_hex())?))
             .collect::<Result<()>>()
             .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
         Ok(())
     }
     /// Fetch a tree recursively
-    fn fetch_tree(&self, sha1: String) -> Result<()> {
-        let data: Vec<u8> = match self.fetch_object(sha1.clone(), Kind::Tree)
-            .with_context(|| format!("Unable to fetch tree \'{}\'", &sha1))? {
+    fn fetch_tree(&self, sha1: &str) -> Result<()> {
+        let data: Vec<u8> = match self.fetch_object(sha1, Kind::Tree)
+            .with_context(|| format!("Unable to fetch tree \'{}\'", sha1))? {
             Some(d) => d,
             // If we returned ok but w/ empty data the object already exists. Exit
             None => return Ok(()),
@@ -60,11 +60,13 @@ impl Remote {
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
             .map(|e| {
-                 let sha1 = std::str::from_utf8(&e.oid.to_sha1_hex())?.to_string();
+                 let sha1_bytes = e.oid.to_sha1_hex();
+                 let sha1 = std::str::from_utf8(&sha1_bytes)
+                     .context("Unable to parse sha from child of tree")?;
                  if e.mode.is_tree() {
-                     self.fetch_tree(sha1.clone())
+                     self.fetch_tree(sha1)
                  } else {
-                     match self.fetch_object(sha1.clone(), Kind::Blob) {
+                     match self.fetch_object(&sha1, Kind::Blob) {
                          Ok(_) => Ok(()),
                          Err(error) => Err(error),
                      }
@@ -76,7 +78,7 @@ impl Remote {
     }
     /// Fetch an object from remote by SHA, save to local git object store.
     /// Blocks
-    fn fetch_object(&self, sha1: String, obj_type: Kind) -> Result<Option<Vec<u8>>> {
+    fn fetch_object(&self, sha1: &str, obj_type: Kind) -> Result<Option<Vec<u8>>> {
         debug!("Fetching object {}", sha1);
 
         // Build oid
