@@ -18,17 +18,16 @@ use s3::S3Error;
 use git_object::immutable::{Blob, Commit, Object, Tree};
 use git_object::Kind;
 use git_hash::{ObjectId, oid};
-use git_odb::loose::Db;
+use git_odb::compound::Db;
 
 /// Struct containing data needed for methods
 pub struct Remote {
-    // Stream of commands being run (needed?)
-    //stdin_stream: String,
     /// Path to local git object store we're reading from
     git_dir: PathBuf,
     /// Bucket we're communicating with
     bucket: Bucket,
-    git_loose_odb: Db,
+    /// Git database we're saving data to
+    git_db: Db,
 }
 
 #[derive(Debug,PartialEq)]
@@ -48,8 +47,10 @@ impl Remote {
         let git_dir = PathBuf::from(opts.git_dir);
         info!("GIT_DIR is \"{}\"", git_dir.to_str().unwrap());
 
-        // Build object DB path
+        // Build object DB
         let mut obj_dir = git_dir.clone(); obj_dir.push("objects");
+        let db = Db::at(obj_dir)
+            .context("Unable to create git db")?;
 
         // Build bucket
         let (profile_name, endpoint_url, bucket_name, bucket_style) =
@@ -64,7 +65,7 @@ impl Remote {
             &bucket_name, profile_name, &endpoint_url, bucket_style
         )?;
         debug!("Bucket is {:?}", bucket);
-        Ok( Remote { git_dir: git_dir.clone(), bucket: bucket, git_loose_odb: Db{path: obj_dir}} )
+        Ok( Remote { git_dir: git_dir.clone(), bucket: bucket, git_db: db})
     }
     /// List supported commands
     pub fn capabilities(&self) -> Result<()> {
@@ -209,7 +210,10 @@ impl Remote {
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
 
         // Check ref if already exists, return None if true
-        if self.git_loose_odb.contains(id) {
+        let mut buf = Vec::new();
+        if self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
+            .context("Error found searching db prior to fetch")?.is_none()
+        {
             return Ok(None)
         }
 
@@ -225,7 +229,7 @@ impl Remote {
         {
             use git_odb::Write;
             use git_hash::Kind;
-            let new_obj = self.git_loose_odb.write_buf(obj_type, &data, Kind::Sha1)
+            let new_obj = self.git_db.write_buf(obj_type, &data, Kind::Sha1)
                 .with_context(|| format!("Unable to write to git database"))?;
         };
 
@@ -298,8 +302,7 @@ impl Remote {
         let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load commit into ObjectId"))?;
         debug!("Object id is {:?}", id);
-        debug!("SHA {}found in local DB", if self.git_loose_odb.contains(id) {""} else {"not "});
-        let new_obj = self.git_loose_odb.find(id, &mut buf)
+        let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
         let new_obj = match new_obj {
             Some(s) => s,
@@ -341,8 +344,7 @@ impl Remote {
         let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
         debug!("Object id is {:?}", id);
-        debug!("SHA {}found in local DB", if self.git_loose_odb.contains(id) {""} else {"not "});
-        let new_obj = self.git_loose_odb.find(id, &mut buf)
+        let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
         let new_obj = match new_obj {
             Some(s) => s,
@@ -388,8 +390,7 @@ impl Remote {
         let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
         debug!("Object id is {:?}", id);
-        debug!("SHA {}found in local DB", if self.git_loose_odb.contains(id) {""} else {"not "});
-        let new_obj = self.git_loose_odb.find(id, &mut buf)
+        let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
         let new_obj = match new_obj {
             Some(s) => s,
