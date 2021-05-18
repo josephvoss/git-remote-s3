@@ -18,7 +18,6 @@ pub enum BucketStyle {
 /// * Endpoint URL
 /// * Bucket style to use (true for <remote>/<bucket>, false for <bucket>.<remote>
 pub fn new_bucket(
-    //bucket_name: &str, git_object_dir: String, profile: String, endpoint_url: String,
     bucket_name: &str, profile: Option<&str>, region: &str, bucket_style: BucketStyle
 ) -> Result<Bucket, anyhow::Error>{
 
@@ -39,6 +38,7 @@ pub fn new_bucket(
                     None => "default",
                 }
             ))?;
+    // Change which bucket we create from path style
     match bucket_style {
         BucketStyle::Path => Bucket::new_with_path_style(bucket_name, r, c),
         BucketStyle::Subdomain => Bucket::new(bucket_name, r, c),
@@ -55,7 +55,7 @@ pub fn new_bucket(
 /// s3://s3.example.com/<bucket>
 /// s3://<region>:<bucket>
 /// s3://s3.example.com:<bucket>
-pub fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, String, BucketStyle)> {
+pub fn parse_remote_url(remote_url: &str) -> Result<(Option<&str>, &str, &str, BucketStyle)> {
     info!("Parsing remote url {}", remote_url);
 
     // Remove prefix
@@ -68,9 +68,9 @@ pub fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, S
     // Find profile by tokenizing @ if it exists
     let v: Vec<&str> = remote_url.split('@').collect();
     debug!("Split profile vector is {:?}", v);
-    let profile: Option<String> = match v.len() {
+    let profile: Option<&str> = match v.len() {
         1 => None,
-        _ => Some(v[0].to_string()),
+        _ => Some(v[0]),
     };
     info!("Parsed profile \"{}\" from {}",
         match profile {
@@ -92,11 +92,13 @@ pub fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, S
     // Split on last / or :
     let region_bucket: Vec<&str> = remaining_str.rsplitn(2,&['/',':'][..]).collect();
     debug!("Split region_bucket vector is {:?}", region_bucket);
-    let region: String = region_bucket.last().unwrap().to_string();
+    let region = region_bucket.last()
+        .ok_or(Error::msg("Invalid region name"))?;
     info!("Parsed region \"{}\" from {}", region, remote_url);
 
     // Find bucket name (last /).
-    let bucket: String = region_bucket.first().unwrap().to_string();
+    let bucket = region_bucket.first()
+        .ok_or(Error::msg("Invalid bucket name"))?;
     info!("Parsed bucket \"{}\" from {}", bucket, remote_url);
 
     // Get path style from sep (length of split region)
@@ -115,9 +117,6 @@ pub fn parse_remote_url(remote_url: String) -> Result<(Option<String>, String, S
     Ok((profile, region, bucket, style))
 }
 
-/// Build git ref path from sha
-/// join git_dir w/ sha1[0:2], sha1[2:]
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,32 +129,32 @@ mod tests {
 // s3://s3.example.com:<bucket>
     #[test]
     fn test_parse_remote_url() {
-        assert_eq!(parse_remote_url("s3://profile@region/bucket".to_string()).unwrap(),
-        (Some("profile".to_string()),"region".to_string(),"bucket".to_string(),BucketStyle::Path))
+        assert_eq!(parse_remote_url("s3://profile@region/bucket").unwrap(),
+        (Some("profile"),"region","bucket",BucketStyle::Path))
     }
     #[test]
     fn test_no_profile_parse_remote_url() {
-        assert_eq!(parse_remote_url("s3://region/bucket".to_string()).unwrap(),
-        (None,"region".to_string(),"bucket".to_string(),BucketStyle::Path))
+        assert_eq!(parse_remote_url("s3://region/bucket").unwrap(),
+        (None,"region","bucket",BucketStyle::Path))
     }
     #[test]
     #[should_panic]
     fn test_no_prefix_parse_remote_url() {
-        let _ = parse_remote_url("region/bucket".to_string()).unwrap();
+        let _ = parse_remote_url("region/bucket").unwrap();
     }
     #[test]
     fn test_path_with_port_no_profile_parse_remote_url() {
-        assert_eq!(parse_remote_url("s3://localhost:9000/bucket12345".to_string()).unwrap(),
-        (None, "localhost:9000".to_string(),"bucket12345".to_string(),BucketStyle::Path))
+        assert_eq!(parse_remote_url("s3://localhost:9000/bucket12345").unwrap(),
+        (None, "localhost:9000","bucket12345",BucketStyle::Path))
     }
     #[test]
     fn test_url_subdomain_no_profile_parse_remote_url() {
-        assert_eq!(parse_remote_url("s3://example.com/long/url:bucket12345".to_string()).unwrap(),
-        (None, "example.com/long/url".to_string(),"bucket12345".to_string(),BucketStyle::Subdomain))
+        assert_eq!(parse_remote_url("s3://example.com/long/url:bucket12345").unwrap(),
+        (None, "example.com/long/url","bucket12345",BucketStyle::Subdomain))
     }
     #[test]
     fn test_url_port_subdomain_parse_remote_url() {
-        assert_eq!(parse_remote_url("s3://example.com:60000:bucket12345".to_string()).unwrap(),
-        (None, "example.com:60000".to_string(),"bucket12345".to_string(),BucketStyle::Subdomain))
+        assert_eq!(parse_remote_url("s3://example.com:60000:bucket12345").unwrap(),
+        (None, "example.com:60000","bucket12345",BucketStyle::Subdomain))
     }
 }

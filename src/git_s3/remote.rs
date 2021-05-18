@@ -20,14 +20,16 @@ pub struct Remote {
 }
 
 impl Remote {
-    /// Create a new Remote object. Mostly just contains the s3::bucket::Bucket object and helper
-    /// methods to access it
+    /// Create a new Remote object. Mostly just contains the s3::bucket::Bucket and git object
+    /// store database, and helper methods to access them
+    ///
+    /// Reads in options passed by structopts cli input
     pub fn new(opts: cli::Opts) -> Result<Self> {
         info!("Creating new remote with opts: {:?}", opts);
 
         // Build top level path
         let git_dir = PathBuf::from(opts.git_dir);
-        info!("GIT_DIR is \"{}\"", git_dir.to_str().unwrap());
+        info!("GIT_DIR is \"{:?}\"", git_dir);
 
         // Build object DB
         let mut obj_dir = git_dir.clone(); obj_dir.push("objects");
@@ -36,14 +38,9 @@ impl Remote {
 
         // Build bucket
         let (profile_name, endpoint_url, bucket_name, bucket_style) =
-            parse_remote_url(opts.remote_url)
-            .with_context(|| format!("Unable to parse remote URL"))?;
-        // Cast from Option<String> to Option<&str>
-        let profile_name = match &profile_name {
-            Some(s) => Some(s.as_str()),
-            None => None,
-        };
-        let bucket = new_bucket(
+            parse_remote_url(&opts.remote_url)
+            .context("Unable to parse remote URL")?;
+       let bucket = new_bucket(
             &bucket_name, profile_name, &endpoint_url, bucket_style
         )?;
         debug!("Bucket is {:?}", bucket);
