@@ -3,9 +3,7 @@ mod git_s3;
 
 use structopt::StructOpt;
 use anyhow::{Result, Error};
-use log::{trace, debug, info, warn, error};
-use std::env;
-use std::path::PathBuf;
+use log::info;
 
 fn main() -> Result<()> {
     let opts = cli::Opts::from_args();
@@ -20,7 +18,7 @@ fn main() -> Result<()> {
 
     // Build git_s3 object
     let remote =
-        match git_s3::Remote::new(opts) {
+        match git_s3::remote::Remote::new(opts) {
             Ok(content) => content,
             Err(err) => return Err(Error::msg(
                     format!("Unable to create remote: {:?}", err)
