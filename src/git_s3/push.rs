@@ -1,7 +1,7 @@
 use super::remote::Remote;
 use super::cmd;
 
-use log::{trace, debug};
+use log::{info, trace, debug};
 use anyhow::{Context, Error, Result};
 use std::fs;
 
@@ -51,12 +51,16 @@ impl Remote {
                 .context("Unable to convert remote ref to str")?;
             let is_ff = cmd::is_ancestor(&self.git_dir, old_hash, push_sha)
                 .context("Unable to check is ancestor for fast-forward")?;
+            if !is_ff {
+                info!("{} is not ff to {}",push_sha, old_hash);
+            }
             if !is_ff && !force_push {
                 return Err(Error::msg(format!("{} is not fast-forward for {}", push_sha, old_hash)));
             }
         }
 
         // Otherwise just update
+        debug!("Updating {} to {}", dst_string, push_sha);
         let (_, code) = self.bucket
             .put_object_blocking(dst_string.to_string(), push_sha.as_bytes())
             .with_context(|| format!("Unable to update ref {}", dst_string))?;

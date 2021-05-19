@@ -1,7 +1,7 @@
 use super::remote::Remote;
 
 use anyhow::{Context, Result, Error};
-use log::{trace, debug, error};
+use log::{info, trace, debug, error};
 use std::io;
 
 impl Remote {
@@ -55,6 +55,7 @@ impl Remote {
                     return Err(Error::msg(format!("Non-okay cat for \'{}\': {}", &object.key, code)))
                 }
                 let string_data = std::str::from_utf8(&data)?;
+                info!("List output is: {} {}", string_data.trim(), object.key);
                 println!("{} {}", string_data.trim(), object.key);
             }
         }
@@ -95,11 +96,11 @@ impl Remote {
             // Run it
             let result = match command {
                 "capabilities" => {
-                    debug!("Starting capabilities");
+                    info!("Running capabilities");
                     self.capabilities()
                 },
                 "list" => {
-                    debug!("Starting list");
+                    info!("Running list");
                     let for_push: bool = match line_vec.next() {
                         Some(s) => s == "for-push",
                         None => false,
@@ -114,7 +115,7 @@ impl Remote {
                 },
                 */
                 "fetch" => {
-                    debug!("Starting fetch");
+                    info!("Running fetch");
                     // Parse for fetch
                     let fetch_err = "Fetch command has invalid arg";
                     line_vec.next();
@@ -125,7 +126,7 @@ impl Remote {
                     self.fetch(sha)
                 },
                 "push" => {
-                    debug!("Starting push");
+                    info!("Running push");
 
                     // Parse for push
                     let push_err = "Push command has invalid arg";
