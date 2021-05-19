@@ -42,8 +42,14 @@ impl Remote {
             .with_context(|| format!("Unable to upload commit for {}", &src_string))?;
 
         // Finally, update the ref
-        // Verify it's a fast forward. Get remote ref
-        let remote_exists = self.bucket.get_object_blocking(dst_string.to_string());
+        // Verify it's a fast forward. Get remote ref, return err if err or non-okay code
+        let remote_exists = match self.bucket
+            .get_object_blocking(dst_string.to_string())
+            .with_context(|| format!("Error doing get for remote ref {}", dst_string)) {
+                Ok((data, code)) if code == 200 => Ok((data, code)),
+                Ok(_) => Err(Error::msg("Non-okay get for remote ref")),
+                Err(e) => Err(e),
+            };
         // If exists, check fast forward
         if let Ok(remote_exists) = remote_exists {
             debug!("Remote ref already exits");
@@ -60,6 +66,8 @@ impl Remote {
             if !is_ff && !force_push {
                 return Err(Error::msg(format!("{} is not fast-forward for {}", push_sha, old_hash)));
             }
+        } else {
+            info!("Pushing new ref {}", dst_string);
         }
 
         // Otherwise just update
