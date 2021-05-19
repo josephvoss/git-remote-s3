@@ -1,0 +1,26 @@
+---
+name: release
+on: {push: {tags: ['*.*.*']}}
+jobs:
+  release:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.32.0
+          override: true
+          components: rustfmt, clippy
+      - name: Test
+        run: make test
+      - name: Build release
+        run: make release
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: target/release/git-remote-s3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
