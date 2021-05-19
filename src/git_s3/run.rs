@@ -118,11 +118,12 @@ impl Remote {
                     info!("Running fetch");
                     // Parse for fetch
                     let fetch_err = "Fetch command has invalid arg";
-                    line_vec.next();
-                    //let sha = line_vec.next()
-                    //    .ok_or(Error::msg(format!("{} for sha: {}", fetch_err, buf)))?;
                     let sha = line_vec.next()
                         .ok_or(Error::msg(format!("{} for sha: {}", fetch_err, buf)))?;
+                    trace!("Fetch sha is: {}", sha);
+                    let name = line_vec.next()
+                        .ok_or(Error::msg(format!("{} for name: {}", fetch_err, buf)))?;
+                    trace!("Fetch name is: {}", name);
                     self.fetch(sha)
                 },
                 "push" => {

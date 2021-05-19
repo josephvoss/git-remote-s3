@@ -71,7 +71,7 @@ impl Remote {
         }
 
         // Otherwise just update
-        debug!("Updating {} to {}", dst_string, push_sha);
+        info!("Updating {} to {}", dst_string, push_sha);
         let (_, code) = self.bucket
             .put_object_blocking(dst_string.to_string(), push_sha.as_bytes())
             .with_context(|| format!("Unable to update ref {}", dst_string))?;

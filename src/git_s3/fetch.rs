@@ -87,7 +87,7 @@ impl Remote {
         // Check ref if already exists, return None if true
         let mut buf = Vec::new();
         if self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
-            .context("Error found searching db prior to fetch")?.is_none()
+            .context("Error found searching db prior to fetch")?.is_some()
         {
             return Ok(None)
         }

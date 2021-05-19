@@ -21,6 +21,7 @@ fn main() -> Result<()> {
     stderrlog::new()
         .module(module_path!())
         .verbosity(verbose)
+//        .color(stderrlog::ColorChoice::Never)
         .init()
         .unwrap();
 

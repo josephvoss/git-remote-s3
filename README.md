@@ -51,6 +51,7 @@ quickly).
 ## TODO list
 
 * Finish push (fast forward, safe ref updates)
+  * think this is finished
 * snappy compression for objects saved in s3
 * implement list for-push
 * Packfiles
