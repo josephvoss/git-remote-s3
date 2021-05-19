@@ -2,17 +2,25 @@ mod cli;
 mod git_s3;
 
 use structopt::StructOpt;
-use anyhow::{Result, Error};
+use anyhow::{Context, Result, Error};
 use log::info;
+use std::env;
 
 fn main() -> Result<()> {
     let opts = cli::Opts::from_args();
     info!("Remote URL is \"{}\"", opts.remote_url);
 
-    // Set logging level - is this even supported?
+    // Set logging level - priority to env if cli is 0
+    let verbose: usize = match env::var("GIT_S3_LOG_LEVEL") {
+        Ok(s) if opts.verbose == 0 => s.parse()
+            .with_context(|| format!("Unable to parse `GIT_S3_LOG_LEVEL={}` to usize", s))?,
+        Ok(_) => opts.verbose,
+        Err(e) => return Err(e).context("Error parsing log level"),
+    };
+
     stderrlog::new()
         .module(module_path!())
-        .verbosity(opts.verbose)
+        .verbosity(verbose)
         .init()
         .unwrap();
 
