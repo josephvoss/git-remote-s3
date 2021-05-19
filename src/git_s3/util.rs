@@ -33,10 +33,7 @@ pub fn new_bucket(
     let c =  Credentials::new(None, None, None, None, profile)
             .with_context(|| format!(
                 "Could not load S3 credentials for profile \"{}\"",
-                match profile {
-                    Some(content) => content,
-                    None => "default",
-                }
+                profile.unwrap_or("default"),
             ))?;
     // Change which bucket we create from path style
     match bucket_style {
@@ -73,11 +70,7 @@ pub fn parse_remote_url(remote_url: &str) -> Result<(Option<&str>, &str, &str, B
         _ => Some(v[0]),
     };
     debug!("Parsed profile \"{}\" from {}",
-        match profile {
-            Some(ref content) => content,
-            None => "default",
-        },
-        remote_url
+        profile.unwrap_or("default"), remote_url
     );
 
     // Find region. From the remaining url, split on / or :
@@ -93,12 +86,12 @@ pub fn parse_remote_url(remote_url: &str) -> Result<(Option<&str>, &str, &str, B
     let region_bucket: Vec<&str> = remaining_str.rsplitn(2,&['/',':'][..]).collect();
     trace!("Split region_bucket vector is {:?}", region_bucket);
     let region = region_bucket.last()
-        .ok_or(Error::msg("Invalid region name"))?;
+        .ok_or_else(|| Error::msg("Invalid region name"))?;
     debug!("Parsed region \"{}\" from {}", region, remote_url);
 
     // Find bucket name (last /).
     let bucket = region_bucket.first()
-        .ok_or(Error::msg("Invalid bucket name"))?;
+        .ok_or_else(|| Error::msg("Invalid bucket name"))?;
     debug!("Parsed bucket \"{}\" from {}", bucket, remote_url);
 
     // Get path style from sep (length of split region)

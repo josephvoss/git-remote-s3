@@ -83,15 +83,15 @@ impl Remote {
 
             // Read next line from stdin
             io::stdin().read_line(&mut buf)
-                .with_context(|| format!("Could not read line from stdin"))?;
+                .context("Could not read line from stdin")?;
             debug!("Line is: {:?}", &buf);
 
             // Split it by space, trim whitespace
             let mut line_vec = buf
-                .split(" ")
+                .split(' ')
                 .map(|x| x.trim());
             let command = line_vec.next()
-                .ok_or(Error::msg(format!("Invalid command: {}", buf)))?;
+                .ok_or_else(|| Error::msg(format!("Invalid command: {}", buf)))?;
 
             // Run it
             let result = match command {
@@ -119,10 +119,10 @@ impl Remote {
                     // Parse for fetch
                     let fetch_err = "Fetch command has invalid arg";
                     let sha = line_vec.next()
-                        .ok_or(Error::msg(format!("{} for sha: {}", fetch_err, buf)))?;
+                        .ok_or_else(|| Error::msg(format!("{} for sha: {}", fetch_err, buf)))?;
                     trace!("Fetch sha is: {}", sha);
                     let name = line_vec.next()
-                        .ok_or(Error::msg(format!("{} for name: {}", fetch_err, buf)))?;
+                        .ok_or_else(|| Error::msg(format!("{} for name: {}", fetch_err, buf)))?;
                     trace!("Fetch name is: {}", name);
                     self.fetch(sha)
                 },
@@ -132,11 +132,11 @@ impl Remote {
                     // Parse for push
                     let push_err = "Push command has invalid arg";
                     let mut colon_iter = line_vec.next()
-                        .ok_or(Error::msg(format!("{} from colon split: {}", push_err, buf)))?
+                        .ok_or_else(|| Error::msg(format!("{} from colon split: {}", push_err, buf)))?
                         .split(':');
                     // Get src w/ unknown force prefix
                     let src_str_unk = colon_iter.next()
-                        .ok_or(Error::msg(format!("{} from src parsing: {}", push_err, buf)))?;
+                        .ok_or_else(|| Error::msg(format!("{} from src parsing: {}", push_err, buf)))?;
                     // Key off force push
                     let force_push = match src_str_unk.chars().next() {
                         Some('+') => true,

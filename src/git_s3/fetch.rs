@@ -25,7 +25,7 @@ impl Remote {
     }
     /// Fetch a commit, and all objects it depends on
     fn fetch_commit(&self, sha1: &str) -> Result<()> {
-        let data: Vec<u8> = match self.fetch_object(sha1.clone(), Kind::Commit)
+        let data: Vec<u8> = match self.fetch_object(sha1.to_string(), Kind::Commit)
             .with_context(|| format!("Unable to fetch commit \'{}\'", &sha1))? {
             Some(d) => d,
             // If we returned ok but w/ empty data the object already exists. Exit
@@ -39,14 +39,13 @@ impl Remote {
         self.fetch_tree(std::str::from_utf8(&commit_obj.tree().to_sha1_hex())?)
             .with_context(|| format!("Unable to fetch tree for commit \'{}\'", &sha1))?;
         commit_obj.parents()
-            .map(|obj| self.fetch_commit(std::str::from_utf8(&obj.to_sha1_hex())?))
-            .collect::<Result<()>>()
+            .try_for_each(|obj| self.fetch_commit(std::str::from_utf8(&obj.to_sha1_hex())?))
             .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
         Ok(())
     }
     /// Fetch a tree recursively
     fn fetch_tree(&self, sha1: &str) -> Result<()> {
-        let data: Vec<u8> = match self.fetch_object(sha1, Kind::Tree)
+        let data: Vec<u8> = match self.fetch_object(sha1.to_string(), Kind::Tree)
             .with_context(|| format!("Unable to fetch tree \'{}\'", sha1))? {
             Some(d) => d,
             // If we returned ok but w/ empty data the object already exists. Exit
@@ -59,30 +58,29 @@ impl Remote {
         trace!("Searching for children of {}", sha1);
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
-            .map(|e| {
+            .try_for_each(|e| {
                  let sha1_bytes = e.oid.to_sha1_hex();
                  let sha1 = std::str::from_utf8(&sha1_bytes)
                      .context("Unable to parse sha from child of tree")?;
                  if e.mode.is_tree() {
                      self.fetch_tree(sha1)
                  } else {
-                     match self.fetch_object(&sha1, Kind::Blob) {
+                     match self.fetch_object(sha1.to_string(), Kind::Blob) {
                          Ok(_) => Ok(()),
                          Err(error) => Err(error),
                      }
                  }
             })
-            .collect::<Result<()>>()
             .with_context(|| format!("Unable to fetch entries for tree \'{}\'", &sha1))?;
         Ok(())
     }
     /// Fetch an object from remote by SHA, save to local git object store.
     /// Blocks
-    fn fetch_object(&self, sha1: &str, obj_type: Kind) -> Result<Option<Vec<u8>>> {
+    fn fetch_object(&self, sha1: String, obj_type: Kind) -> Result<Option<Vec<u8>>> {
         trace!("Fetching object {}", sha1);
 
         // Build oid
-        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
+        let id = ObjectId::from_hex(sha1.as_bytes()).context("Unable to load tree into ObjectId")?;
 
         // Check ref if already exists, return None if true
         let mut buf = Vec::new();
@@ -93,7 +91,7 @@ impl Remote {
         }
 
         // If not, get data
-        let (data, code) = self.bucket.get_object_blocking(&sha1)
+        let (data, code) = self.bucket.get_object_blocking(sha1.to_string())
             .with_context(|| format!("Unable to fetch object\'{}\'", sha1))?;
         debug!("Fetch for \'{}\': {}", sha1, code);
         if code != 200 {
@@ -105,7 +103,7 @@ impl Remote {
             use git_odb::Write;
             use git_hash::Kind;
             let _new_obj = self.git_db.write_buf(obj_type, &data, Kind::Sha1)
-                .with_context(|| format!("Unable to write to git database"))?;
+                .context("Unable to write to git database")?;
         };
 
         Ok(Some(data))

@@ -82,7 +82,7 @@ impl Remote {
     }
 
     /// Check if a passed sha exists in the configured bucket
-    fn check_hash_remote(&self, sha1: &str) -> Result<bool> {
+    fn check_hash_remote(&self, sha1: String) -> Result<bool> {
         let results = self.bucket.list_blocking(sha1.to_string(), None)
             .with_context(|| format!("Check existence of remote object {} failed", &sha1))?;
         trace!("Results of list is {:?}", &results);
@@ -91,7 +91,7 @@ impl Remote {
                 return Err(Error::msg(format!("Non-okay list for \'{}\': {}", &sha1, code)))
             }
             trace!("Result in check is {:?}", r);
-            if r.contents.len() != 0 {
+            if !r.contents.is_empty() {
                 debug!("Object {} exists remotely, exitting", &sha1);
                 return Ok(true)
             }
@@ -105,7 +105,7 @@ impl Remote {
         // Load commit from sha
         debug!("Uploading {}", &sha1);
         let mut buf = Vec::new();
-        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load commit into ObjectId"))?;
+        let id = ObjectId::from_hex(sha1.as_bytes()).context("Unable to load commit into ObjectId")?;
         trace!("Object id is {:?}", id);
         let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
@@ -115,7 +115,7 @@ impl Remote {
         };
 
         // Check if exists. If so, exit
-        if self.check_hash_remote(sha1.clone())
+        if self.check_hash_remote(sha1.to_string())
             .with_context(|| "Unable to check state of commit")? {
             return Ok(())
         }
@@ -129,13 +129,12 @@ impl Remote {
         self.upload_tree(&commit_obj.tree().to_sha1_hex_string())
             .with_context(|| "Unable to upload tree")?;
         commit_obj.parents()
-            .map(|obj| self.upload_commit(&obj.to_sha1_hex_string()))
-            .collect::<Result<()>>()
+            .try_for_each(|obj| self.upload_commit(&obj.to_sha1_hex_string()))
             .with_context(|| format!("Unable to fetch parent for commit \'{}\'", &sha1))?;
 
         // Now upload
         let (_, code) = self.bucket.put_object_blocking(&sha1, &new_obj.data)
-            .with_context(|| format!("Unable to upload commit"))?;
+            .context("Unable to upload commit")?;
         match code {
             200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for commit \'{}\': {}", &sha1, code))),
@@ -147,7 +146,7 @@ impl Remote {
         debug!("Uploading tree {}", &sha1);
         // Load tree from sha
         let mut buf = Vec::new();
-        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
+        let id = ObjectId::from_hex(sha1.as_bytes()).context("Unable to load tree into ObjectId")?;
         trace!("Object id is {:?}", id);
         let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
@@ -157,7 +156,7 @@ impl Remote {
         };
 
         // Check if exists. If so, exit
-        if self.check_hash_remote(sha1.clone())
+        if self.check_hash_remote(sha1.to_string())
             .with_context(|| "Unable to check state of tree")? {
             return Ok(())
         }
@@ -167,7 +166,7 @@ impl Remote {
         trace!("Searching for children of {}", &sha1);
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
-            .map(|e| {
+            .try_for_each(|e| {
                  let sha1_bytes = e.oid.to_sha1_hex();
                  let sha1 = std::str::from_utf8(&sha1_bytes)
                      .context("Unable to parse sha from child of tree")?;
@@ -180,11 +179,10 @@ impl Remote {
                      }
                  }
             })
-            .collect::<Result<()>>()
             .with_context(|| format!("Unable to push entries for tree \'{}\'", &sha1))?;
         // Now upload
         let (_, code) = self.bucket.put_object_blocking(&sha1, &new_obj.data)
-            .with_context(|| format!("Unable to upload tree"))?;
+            .context("Unable to upload tree")?;
         match code {
             200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for tree \'{}\': {}", &sha1, code))),
@@ -195,7 +193,7 @@ impl Remote {
         debug!("Uploading blob {}", &sha1);
         // Load blob from sha
         let mut buf = Vec::new();
-        let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
+        let id = ObjectId::from_hex(sha1.as_bytes()).context("Unable to load tree into ObjectId")?;
         trace!("Object id is {:?}", id);
         let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
@@ -205,13 +203,13 @@ impl Remote {
         };
 
         // Check if exists. If so, exit
-        if self.check_hash_remote(sha1.clone())
-            .with_context(|| "Unable to check state of commit")? {
+        if self.check_hash_remote(sha1.to_string())
+            .context("Unable to check state of commit")? {
             return Ok(())
         }
         // Otherwise, upload
         let (_, code) = self.bucket.put_object_blocking(&sha1, &new_obj.data)
-            .with_context(|| format!("Unable to upload blob"))?;
+            .context("Unable to upload blob")?;
         match code {
             200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for blob \'{}\': {}", &sha1, code))),

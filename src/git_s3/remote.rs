@@ -44,6 +44,6 @@ impl Remote {
             &bucket_name, profile_name, &endpoint_url, bucket_style
         )?;
         trace!("Bucket is {:?}", bucket);
-        Ok( Remote { git_dir: git_dir.clone(), bucket: bucket, git_db: db})
+        Ok( Remote { git_dir, bucket, git_db: db})
     }
 }
