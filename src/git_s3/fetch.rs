@@ -104,7 +104,7 @@ impl Remote {
         {
             use git_odb::Write;
             use git_hash::Kind;
-            let new_obj = self.git_db.write_buf(obj_type, &data, Kind::Sha1)
+            let _new_obj = self.git_db.write_buf(obj_type, &data, Kind::Sha1)
                 .with_context(|| format!("Unable to write to git database"))?;
         };
 

@@ -21,8 +21,21 @@ Credentials either saved in env vars `AWS_ACCESS_KEY_ID` and
 $ git clone s3://play.min.io/git-remote-s3
 # Virtual-hosted-style bucket
 $ git clone s3://s3.Region.amazonaws.com:git-remote-s3
+# Increase log level (1-6)
+$ export GIT_S3_LOG_LEVEL=3
 # Specify AWS profile
 $ git clone s3://non-default-creds@s3.Region.amazonaws.com:git-remote-s3
+```
+
+## Installation
+
+This will be published as a crate once it's in a stable v1 release, but until
+then you can grab it from the latest Github release, or install it from
+source. Git will use any binary with the name `git-remote-s3` in your path as
+the s3 remote helper.
+
+```
+cargo install --git git@github.com:josephvoss/git-remote-s3.git
 ```
 
 ## Why this is *terrible*
