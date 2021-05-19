@@ -1,6 +1,6 @@
 use super::remote::Remote;
 
-use log::{debug, info};
+use log::{trace, debug};
 use anyhow::{Context, Error, Result};
 use git_object::Kind;
 use git_object::immutable::{Commit, Tree};
@@ -32,10 +32,10 @@ impl Remote {
             None => return Ok(()),
         };
 
-        debug!("{} was a commit. Parsing", sha1);
+        trace!("{} was a commit. Parsing", sha1);
         // Parse object, fetch deps
         let commit_obj = Commit::from_bytes(&data)?;
-        debug!("Searching for children of {}", sha1);
+        trace!("Searching for children of {}", sha1);
         self.fetch_tree(std::str::from_utf8(&commit_obj.tree().to_sha1_hex())?)
             .with_context(|| format!("Unable to fetch tree for commit \'{}\'", &sha1))?;
         commit_obj.parents()
@@ -53,10 +53,10 @@ impl Remote {
             None => return Ok(()),
         };
 
-        debug!("{} was a tree. Parsing", sha1);
+        trace!("{} was a tree. Parsing", sha1);
         // Parse tree, fetch deps
         let tree_obj = Tree::from_bytes(&data)?;
-        debug!("Searching for children of {}", sha1);
+        trace!("Searching for children of {}", sha1);
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
             .map(|e| {
@@ -79,7 +79,7 @@ impl Remote {
     /// Fetch an object from remote by SHA, save to local git object store.
     /// Blocks
     fn fetch_object(&self, sha1: &str, obj_type: Kind) -> Result<Option<Vec<u8>>> {
-        debug!("Fetching object {}", sha1);
+        trace!("Fetching object {}", sha1);
 
         // Build oid
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
@@ -95,7 +95,7 @@ impl Remote {
         // If not, get data
         let (data, code) = self.bucket.get_object_blocking(&sha1)
             .with_context(|| format!("Unable to fetch object\'{}\'", sha1))?;
-        info!("Fetch for \'{}\': {}", sha1, code);
+        debug!("Fetch for \'{}\': {}", sha1, code);
         if code != 200 {
             return Err(Error::msg(format!("Non-okay fetch for \'{}\': {}", sha1, code)))
         }

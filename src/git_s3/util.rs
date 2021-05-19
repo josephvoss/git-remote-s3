@@ -1,6 +1,6 @@
 use s3::bucket::Bucket;
 
-use log::{debug, info};
+use log::{trace, debug};
 use anyhow::{Context, Error, Result};
 
 use s3::creds::Credentials;
@@ -21,7 +21,7 @@ pub fn new_bucket(
     bucket_name: &str, profile: Option<&str>, region: &str, bucket_style: BucketStyle
 ) -> Result<Bucket, anyhow::Error>{
 
-    info!("Building new bucket");
+    debug!("Building new bucket");
     // Parse config
     // git config --get s3.bucket ? How do remotes?
     // Just using s3 profiles for now
@@ -29,7 +29,7 @@ pub fn new_bucket(
 
     let r = region.parse()
             .with_context(|| format!("Could not create region for \"{}\"", region))?;
-    info!("Loaded region is {}", r);
+    debug!("Loaded region is {}", r);
     let c =  Credentials::new(None, None, None, None, profile)
             .with_context(|| format!(
                 "Could not load S3 credentials for profile \"{}\"",
@@ -56,7 +56,7 @@ pub fn new_bucket(
 /// s3://<region>:<bucket>
 /// s3://s3.example.com:<bucket>
 pub fn parse_remote_url(remote_url: &str) -> Result<(Option<&str>, &str, &str, BucketStyle)> {
-    info!("Parsing remote url {}", remote_url);
+    debug!("Parsing remote url {}", remote_url);
 
     // Remove prefix
     let prefix = "s3://";
@@ -67,12 +67,12 @@ pub fn parse_remote_url(remote_url: &str) -> Result<(Option<&str>, &str, &str, B
 
     // Find profile by tokenizing @ if it exists
     let v: Vec<&str> = remote_url.split('@').collect();
-    debug!("Split profile vector is {:?}", v);
+    trace!("Split profile vector is {:?}", v);
     let profile: Option<&str> = match v.len() {
         1 => None,
         _ => Some(v[0]),
     };
-    info!("Parsed profile \"{}\" from {}",
+    debug!("Parsed profile \"{}\" from {}",
         match profile {
             Some(ref content) => content,
             None => "default",
@@ -91,20 +91,20 @@ pub fn parse_remote_url(remote_url: &str) -> Result<(Option<&str>, &str, &str, B
     let remaining_str = v[start_index];
     // Split on last / or :
     let region_bucket: Vec<&str> = remaining_str.rsplitn(2,&['/',':'][..]).collect();
-    debug!("Split region_bucket vector is {:?}", region_bucket);
+    trace!("Split region_bucket vector is {:?}", region_bucket);
     let region = region_bucket.last()
         .ok_or(Error::msg("Invalid region name"))?;
-    info!("Parsed region \"{}\" from {}", region, remote_url);
+    debug!("Parsed region \"{}\" from {}", region, remote_url);
 
     // Find bucket name (last /).
     let bucket = region_bucket.first()
         .ok_or(Error::msg("Invalid bucket name"))?;
-    info!("Parsed bucket \"{}\" from {}", bucket, remote_url);
+    debug!("Parsed bucket \"{}\" from {}", bucket, remote_url);
 
     // Get path style from sep (length of split region)
     let sep = remaining_str.chars().nth(region.len())
         .with_context(|| format!("Unable to get seperator from {}",remaining_str))?;
-    debug!("Sep is {}", sep);
+    trace!("Sep is {}", sep);
     let style = match sep {
         '/' => BucketStyle::Path,
         ':' => BucketStyle::Subdomain,
@@ -112,7 +112,7 @@ pub fn parse_remote_url(remote_url: &str) -> Result<(Option<&str>, &str, &str, B
                 format!("No matching bucket style for {}", sep)
             ))
     };
-    info!("Parsed style \"{:?}\" from {}", style, remote_url);
+    debug!("Parsed style \"{:?}\" from {}", style, remote_url);
 
     Ok((profile, region, bucket, style))
 }

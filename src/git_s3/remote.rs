@@ -2,7 +2,7 @@ use crate::cli;
 
 use super::util::{new_bucket, parse_remote_url};
 
-use log::{debug, info};
+use log::{trace, debug};
 use anyhow::{Context, Result};
 
 use std::path::PathBuf;
@@ -25,11 +25,11 @@ impl Remote {
     ///
     /// Reads in options passed by structopts cli input
     pub fn new(opts: cli::Opts) -> Result<Self> {
-        info!("Creating new remote with opts: {:?}", opts);
+        debug!("Creating new remote with opts: {:?}", opts);
 
         // Build top level path
         let git_dir = PathBuf::from(opts.git_dir);
-        info!("GIT_DIR is \"{:?}\"", git_dir);
+        debug!("GIT_DIR is \"{:?}\"", git_dir);
 
         // Build object DB
         let mut obj_dir = git_dir.clone(); obj_dir.push("objects");
@@ -43,7 +43,7 @@ impl Remote {
        let bucket = new_bucket(
             &bucket_name, profile_name, &endpoint_url, bucket_style
         )?;
-        debug!("Bucket is {:?}", bucket);
+        trace!("Bucket is {:?}", bucket);
         Ok( Remote { git_dir: git_dir.clone(), bucket: bucket, git_db: db})
     }
 }

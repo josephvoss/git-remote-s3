@@ -1,7 +1,7 @@
 use super::remote::Remote;
 use super::cmd;
 
-use log::{debug, info};
+use log::{trace, debug};
 use anyhow::{Context, Error, Result};
 use std::fs;
 
@@ -26,7 +26,7 @@ impl Remote {
     // i.e. small atomic objects first, nested objects and references last
     pub fn push(&self, src_string: &str, dst_string: &str, force_push: bool) -> Result<()> {
         // Read local ref
-        debug!("Reading local ref");
+        trace!("Reading local ref");
         // Build path
         let mut path = self.git_dir.clone(); path.push(&src_string);
         if !path.exists() {
@@ -35,7 +35,7 @@ impl Remote {
 
         let push_sha = fs::read_to_string(path).with_context(|| format!("Unable to read ref {}", &src_string))?;
         let push_sha = push_sha.trim();
-        debug!("Local ref: {} to {}", &src_string, push_sha);
+        trace!("Local ref: {} to {}", &src_string, push_sha);
 
         // Push this commit and all deps
         self.upload_commit(push_sha)
@@ -70,14 +70,14 @@ impl Remote {
     fn check_hash_remote(&self, sha1: &str) -> Result<bool> {
         let results = self.bucket.list_blocking(sha1.to_string(), None)
             .with_context(|| format!("Check existence of remote object {} failed", &sha1))?;
-        debug!("Results of list is {:?}", &results);
+        trace!("Results of list is {:?}", &results);
         for (r, code) in results {
             if code != 200 {
                 return Err(Error::msg(format!("Non-okay list for \'{}\': {}", &sha1, code)))
             }
-            debug!("Result in check is {:?}", r);
+            trace!("Result in check is {:?}", r);
             if r.contents.len() != 0 {
-                info!("Object {} exists remotely, exitting", &sha1);
+                debug!("Object {} exists remotely, exitting", &sha1);
                 return Ok(true)
             }
         }
@@ -88,10 +88,10 @@ impl Remote {
     /// (parents, tree)
     fn upload_commit(&self, sha1: &str) -> Result<()> {
         // Load commit from sha
-        info!("Uploading {}", &sha1);
+        debug!("Uploading {}", &sha1);
         let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load commit into ObjectId"))?;
-        debug!("Object id is {:?}", id);
+        trace!("Object id is {:?}", id);
         let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
         let new_obj = match new_obj {
@@ -129,11 +129,11 @@ impl Remote {
     /// Upload a tree if it doesn't exist remotely. Also verify all objects it describes exists
     /// (subtrees, blobs)
     fn upload_tree(&self, sha1: &str) -> Result<()> {
-        info!("Uploading tree {}", &sha1);
+        debug!("Uploading tree {}", &sha1);
         // Load tree from sha
         let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
-        debug!("Object id is {:?}", id);
+        trace!("Object id is {:?}", id);
         let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
         let new_obj = match new_obj {
@@ -149,7 +149,7 @@ impl Remote {
 
         // Parse the object
         let tree_obj = Tree::from_bytes(new_obj.data)?;
-        debug!("Searching for children of {}", &sha1);
+        trace!("Searching for children of {}", &sha1);
         // Iter over entries, fetch tree or object
         tree_obj.entries.iter()
             .map(|e| {
@@ -177,11 +177,11 @@ impl Remote {
     }
     /// Upload a blob if it doesn't exist remotely
     fn upload_blob(&self, sha1: &str) -> Result<()> {
-        info!("Uploading blob {}", &sha1);
+        debug!("Uploading blob {}", &sha1);
         // Load blob from sha
         let mut buf = Vec::new();
         let id = ObjectId::from_hex(sha1.as_bytes()).with_context(|| format!("Unable to load tree into ObjectId"))?;
-        debug!("Object id is {:?}", id);
+        trace!("Object id is {:?}", id);
         let new_obj = self.git_db.find(id, &mut buf, &mut git_odb::pack::cache::Never)
             .with_context(|| "Unable to search local database")?;
         let new_obj = match new_obj {

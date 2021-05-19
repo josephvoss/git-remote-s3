@@ -1,7 +1,7 @@
 use super::remote::Remote;
 
 use anyhow::{Context, Result, Error};
-use log::{debug, info, error};
+use log::{trace, debug, error};
 use std::io;
 
 impl Remote {
@@ -46,9 +46,9 @@ impl Remote {
             if code != 200 {
                 return Err(Error::msg(format!("Non-okay list for \'{}\': {}", search_prefix, code)))
             }
-            debug!("Result in list is {:?}", r);
+            trace!("Result in list is {:?}", r);
             for object in r.contents {
-                debug!("Content in list is {:?}", object);
+                trace!("Content in list is {:?}", object);
                 let (data, code) = self.bucket.get_object_blocking(&object.key)
                     .with_context(|| format!("Unable to list content for \'{}\'", &object.key))?;
                 if code != 200 {
@@ -77,13 +77,13 @@ impl Remote {
     */
     pub fn run(&self) -> Result<()> {
         loop {
-            info!("Reading new line from stdin");
+            debug!("Reading new line from stdin");
             let mut buf = String::new();
 
             // Read next line from stdin
             io::stdin().read_line(&mut buf)
                 .with_context(|| format!("Could not read line from stdin"))?;
-            info!("Line is: {:?}", &buf);
+            debug!("Line is: {:?}", &buf);
 
             // Split it by space, trim whitespace
             let mut line_vec = buf
@@ -95,26 +95,26 @@ impl Remote {
             // Run it
             let result = match command {
                 "capabilities" => {
-                    info!("Starting capabilities");
+                    debug!("Starting capabilities");
                     self.capabilities()
                 },
                 "list" => {
-                    info!("Starting list");
+                    debug!("Starting list");
                     let for_push: bool = match line_vec.next() {
                         Some(s) => s == "for-push",
                         None => false,
                     };
-                    if for_push {info!("For-push")};
+                    if for_push {debug!("For-push")};
                     self.list(for_push)
                 },
                 /*
                 "option" => {
-                    info!("Starting option");
+                    debug!("Starting option");
                     self.option()
                 },
                 */
                 "fetch" => {
-                    info!("Starting fetch");
+                    debug!("Starting fetch");
                     // Parse for fetch
                     let fetch_err = "Fetch command has invalid arg";
                     line_vec.next();
@@ -125,7 +125,7 @@ impl Remote {
                     self.fetch(sha)
                 },
                 "push" => {
-                    info!("Starting push");
+                    debug!("Starting push");
 
                     // Parse for push
                     let push_err = "Push command has invalid arg";
@@ -152,18 +152,18 @@ impl Remote {
                         _ => return Err(Error::msg(format!("{} from dst parsing: {}", push_err, buf))),
                     };
 
-                    info!("Pushing {} to {} {}", src_str, dst_str, if force_push {"forcefully"} else {""});
+                    debug!("Pushing {} to {} {}", src_str, dst_str, if force_push {"forcefully"} else {""});
                     self.push(src_str, dst_str, force_push)
                 },
                 _ => {
-                    info!("No matching command found for: {}", command);
-                    info!("Exiting");
+                    debug!("No matching command found for: {}", command);
+                    debug!("Exiting");
                     break Ok(())
                 }
             };
             match result {
                 Ok(()) => {
-                    info!("Ran command {} successfully", command);
+                    debug!("Ran command {} successfully", command);
                     println!();
                 }
                 _ => {
