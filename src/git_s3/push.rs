@@ -1,4 +1,5 @@
 use super::remote::Remote;
+use super::cmd;
 
 use log::{debug, info};
 use anyhow::{Context, Error, Result};
@@ -36,14 +37,29 @@ impl Remote {
         let push_sha = push_sha.trim();
         debug!("Local ref: {} to {}", &src_string, push_sha);
 
-        // Push this commit
+        // Push this commit and all deps
         self.upload_commit(push_sha)
             .with_context(|| format!("Unable to upload commit for {}", &src_string))?;
 
         // Finally, update the ref
-        // TODO - verify it's a fast forward
-        let (_, code) = self.bucket.put_object_blocking(dst_string, push_sha.as_bytes())
-            .with_context(|| format!("Unable to upload commit"))?;
+        // Verify it's a fast forward. Get remote ref
+        let remote_exists = self.bucket.get_object_blocking(dst_string.to_string());
+        // If exists, check fast forward
+        if let Ok(remote_exists) = remote_exists {
+            let (data, _) = remote_exists;
+            let old_hash = std::str::from_utf8(&data)
+                .context("Unable to convert remote ref to str")?;
+            let is_ff = cmd::is_ancestor(&self.git_dir, old_hash, push_sha)
+                .context("Unable to check is ancestor for fast-forward")?;
+            if !is_ff && !force_push {
+                return Err(Error::msg(format!("{} is not fast-forward for {}", push_sha, old_hash)));
+            }
+        }
+
+        // Otherwise just update
+        let (_, code) = self.bucket
+            .put_object_blocking(dst_string.to_string(), push_sha.as_bytes())
+            .with_context(|| format!("Unable to update ref {}", dst_string))?;
         match code {
             200 => Ok(()),
             _ => Err(Error::msg(format!("Non-okay push for \'{}\': {}", push_sha, code))),

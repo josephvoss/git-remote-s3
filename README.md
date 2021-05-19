@@ -47,3 +47,10 @@ quickly).
 * Ref dirs have an index at `refs/.`. List of key ids
 
 * Fetch list refs, cat object
+
+## TODO list
+
+* Finish push (fast forward, safe ref updates)
+* snappy compression for objects saved in s3
+* implement list for-push
+* Packfiles

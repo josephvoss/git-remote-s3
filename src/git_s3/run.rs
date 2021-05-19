@@ -36,18 +36,21 @@ impl Remote {
     /// List refs that this bucket knows about. Returns all objects in s3 prefaced with `refs/`.
     /// Takes a parameter to return default remote branch (`HEAD`)
     /// Prints "<data> <key>"
-    pub fn list(&self, include_head: bool) -> Result<()> {
-        let results = self.bucket.list_blocking("refs/".to_string(), None)
-            .with_context(|| "List command failed")?;
+    pub fn list(&self, _include_head: bool) -> Result<()> {
+        self.list_prefix("refs/").context("List refs")
+    }
+    fn list_prefix(&self, search_prefix: &str) -> Result<()> {
+        let results = self.bucket.list_blocking(search_prefix.to_string(), None)
+            .context("List command failed")?;
         for (r, code) in results {
             if code != 200 {
-                return Err(Error::msg(format!("Non-okay list for \'{}\': {}", "refs/", code)))
+                return Err(Error::msg(format!("Non-okay list for \'{}\': {}", search_prefix, code)))
             }
             debug!("Result in list is {:?}", r);
             for object in r.contents {
                 debug!("Content in list is {:?}", object);
                 let (data, code) = self.bucket.get_object_blocking(&object.key)
-                    .with_context(|| format!("Unable to list content for ref \'{}\'", &object.key))?;
+                    .with_context(|| format!("Unable to list content for \'{}\'", &object.key))?;
                 if code != 200 {
                     return Err(Error::msg(format!("Non-okay cat for \'{}\': {}", &object.key, code)))
                 }
@@ -114,11 +117,12 @@ impl Remote {
                     info!("Starting fetch");
                     // Parse for fetch
                     let fetch_err = "Fetch command has invalid arg";
+                    line_vec.next();
+                    //let sha = line_vec.next()
+                    //    .ok_or(Error::msg(format!("{} for sha: {}", fetch_err, buf)))?;
                     let sha = line_vec.next()
                         .ok_or(Error::msg(format!("{} for sha: {}", fetch_err, buf)))?;
-                    let name = line_vec.next()
-                        .ok_or(Error::msg(format!("{} for name: {}", fetch_err, buf)))?;
-                    self.fetch(sha, name)
+                    self.fetch(sha)
                 },
                 "push" => {
                     info!("Starting push");

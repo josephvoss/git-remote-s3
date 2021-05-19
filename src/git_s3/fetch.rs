@@ -19,7 +19,7 @@ impl Remote {
      */
     /// This is a mess of copys and string passing for what should be byte arrays. I have no idea
     /// how to clean it up at the moment
-    pub fn fetch(&self, sha1: &str, name: &str) -> Result<()> {
+    pub fn fetch(&self, sha1: &str) -> Result<()> {
         // Fetch commit
         self.fetch_commit(sha1)
     }
