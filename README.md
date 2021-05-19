@@ -1,27 +1,29 @@
 # git-remote-s3
 
-Git remote helper to communicate to an S3 backend directly.
+[Git remote helper](https://git-scm.com/docs/gitremote-helpers) to communicate to an S3 backend directly. Able to fetch and
+push git objects to S3-compatible object stores.
 
-Read from a config file for authentication tokens and keys
+Heavily leverages [gitoxide](https://github.com/Byron/gitoxide) and
+[rust-s3](https://crates.io/crates/rust-s3) to do the heavy lifting talking to
+the respective backends. Inspired by
+[git-remote-dropbox](https://github.com/anishathalye/git-remote-dropbox),
+[git-remote-ipfs](https://github.com/cryptix/git-remote-ipfs), ["How to Write a New Git Protocol"](https://rovaughn.github.io/2015-2-9.html), and ["Developing
+a Custom Remote Git
+Helper"](https://www.apriorit.com/dev-blog/715-virtualization-git-remote-helper)
 
-Need to implement the following
+## Examples
 
-* list
-  * List remote refs by "$objectname $refname\n"
-* capabilities
-  * List supported caps (mainly functions below)
-* import
-  * Import remote refs to local. Provided in batch w/ newline sep "import
-    $refname" (git fast-import stream). Return git fast-export on stdout
-* export
-  * Export local refs to remote. Provided in batch w/ newline sep "import
-    $refname"
-* refspec
-* import-marks
-* export-marks
-* options (Change config file settings? cli verbosity overwrites?)
-* push (List remote refs, push local commits and history to them)
-* fetch (Get remote refs, download objs referred to)
+Credentials either saved in env vars `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCES_KEY` or the AWS credentials file `~/.aws/credentials`.
+
+```
+# Path style bucket
+$ git clone s3://play.min.io/git-remote-s3
+# Virtual-hosted-style bucket
+$ git clone s3://s3.Region.amazonaws.com:git-remote-s3
+# Specify AWS profile
+$ git clone s3://non-default-creds@s3.Region.amazonaws.com:git-remote-s3
+```
 
 ## Why this is *terrible*
 
@@ -53,5 +55,6 @@ quickly).
 * Finish push (fast forward, safe ref updates)
   * think this is finished
 * snappy compression for objects saved in s3
-* implement list for-push
-* Packfiles
+* implement list for-push and default remote heads
+* Packfiles to speed up remote operations
+* parallelize *all the things*
