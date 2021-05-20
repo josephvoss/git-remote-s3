@@ -17,11 +17,8 @@ jobs:
         run: make test
       - name: Build
         run: make build
-        # Need this to save file
-      - name: Cat Cargo.lock
-        run: cat Cargo.lock
       - name: Save artifact
         uses: actions/upload-artifact@v2
         with:
           name: git-remote-s3
-          path: target/release/git-remote-s3
+          path: target/debug/git-remote-s3
