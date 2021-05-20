@@ -10,7 +10,7 @@ jobs:
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.32.0
+          toolchain: stable
           override: true
           components: rustfmt, clippy
       - name: Test
