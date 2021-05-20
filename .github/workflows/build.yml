@@ -1,6 +1,9 @@
 ---
 name: build
-on: [push]
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['*.*.*']
 jobs:
   build-binary:
     runs-on: ubuntu-20.04
