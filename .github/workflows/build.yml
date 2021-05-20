@@ -66,8 +66,8 @@ jobs:
           toolchain: 1.51
           override: true
           components: rustfmt, clippy
-      - name: Install cc
-        run: yum install -y gcc
+      - name: Install deps
+        run: yum install -y gcc openssl-devel
       # Download and build dependent crates
       - name: Cargo check
         run: cargo check
@@ -101,8 +101,8 @@ jobs:
           toolchain: 1.51
           override: true
           components: rustfmt, clippy
-      - name: Install cc
-        run: yum install -y gcc
+      - name: Install deps
+        run: yum install -y gcc openssl-devel
       # Download and build dependent crates
       - name: Cargo check
         run: cargo check
