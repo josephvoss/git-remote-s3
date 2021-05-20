@@ -94,7 +94,7 @@ jobs:
           override: true
           components: rustfmt, clippy
       - name: Install deps
-        run: yum install -y gcc openssl-devel cmake3; ln -s /usr/bin/cmake3 /usr/bin/cmake
+        run: yum install -y gcc openssl-devel cmake make
       # Download and build dependent crates
       - name: Cargo check
         run: cargo check
