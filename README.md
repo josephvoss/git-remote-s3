@@ -38,6 +38,12 @@ the s3 remote helper.
 cargo install --git git@github.com:josephvoss/git-remote-s3.git
 ```
 
+## Change log
+
+### 0.1.0
+
+Initial release.
+
 ## Why this is *terrible*
 
 * Git fast-import/export -> copies *entire repository* to remote storage on
@@ -52,7 +58,6 @@ cargo install --git git@github.com:josephvoss/git-remote-s3.git
 quickly).
   * Are we changing the commit object IDs? Hashes aren't saved anywhere from
     what I can tell
-* import vs fetch!!!! We can just fetch refs we already have!
 
 ## Format in s3
 
