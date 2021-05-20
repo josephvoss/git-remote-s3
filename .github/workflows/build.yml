@@ -17,6 +17,9 @@ jobs:
         run: make test
       - name: Build debug
         run: make debug
+        # Need this to save file
+      - name: Cat Cargo.lock
+        run: cat Cargo.lock
       - name: Save artifact
         uses: actions/upload-artifact@v2
         with:
