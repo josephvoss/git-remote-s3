@@ -8,14 +8,15 @@ edition = "2018"
 name = "git-remote-s3"
 test = false
 bench = false
+path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 structopt = "0.3.21"
 anyhow = "1.0"
-stderrlog = "0.4"
-log = "0.4"
+stderrlog = "0.5.1"
+log = "0.4.11"
 rust-s3 = "0.26.0"
 aws-creds = "0.26.0"
 git-object = "0.9.0"
