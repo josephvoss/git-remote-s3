@@ -15,8 +15,8 @@ jobs:
           components: rustfmt, clippy
       - name: Test
         run: make test
-      - name: Build debug
-        run: make debug
+      - name: Build
+        run: make build
         # Need this to save file
       - name: Cat Cargo.lock
         run: cat Cargo.lock

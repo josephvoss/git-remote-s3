@@ -1,8 +1,8 @@
 release:
 	cargo build --release
 
-debug:
-	cargo build --debug
+build:
+	cargo build
 
 test: lint unittest
 
