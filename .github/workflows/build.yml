@@ -5,7 +5,8 @@ on:
     branches: ['**']
     tags-ignore: ['*.*.*']
 jobs:
-  build-binary:
+  # This shouldn't be super needed tied to a version, but libssl is a pain
+  build-binary-ubuntu20:
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout
@@ -13,9 +14,20 @@ jobs:
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.51
           override: true
           components: rustfmt, clippy
+      # Download and build dependent crates
+      - name: Cargo check
+        run: cargo check
+      # Cache build
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-20.04-${{ hashFiles('**/Cargo.lock') }}
       - name: Test
         run: make test
       - name: Build
@@ -23,5 +35,71 @@ jobs:
       - name: Save artifact
         uses: actions/upload-artifact@v2
         with:
-          name: git-remote-s3
+          name: git-remote-s3-debug-ubuntu-20.04
+          path: target/debug/git-remote-s3
+  build-binary-centos8:
+    runs-on: ubuntu-latest
+    container:
+      image: centos:8.3.2011
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.51
+          override: true
+          components: rustfmt, clippy
+      # Download and build dependent crates
+      - name: Cargo check
+        run: cargo check
+      # Cache build
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: centos-8.3.2011-${{ hashFiles('**/Cargo.lock') }}
+      - name: Test
+        run: make test
+      - name: Build
+        run: make build
+      - name: Save artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: git-remote-s3-debug-centos-8.3.2011
+          path: target/debug/git-remote-s3
+  build-binary-centos7:
+    runs-on: ubuntu-latest
+    container:
+      image: centos:7.9.2009
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.51
+          override: true
+          components: rustfmt, clippy
+      # Download and build dependent crates
+      - name: Cargo check
+        run: cargo check
+      # Cache build
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: centos-7.9.2009-${{ hashFiles('**/Cargo.lock') }}
+      - name: Test
+        run: make test
+      - name: Build
+        run: make build
+      - name: Save artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: git-remote-s3-debug-centos-7.9.2009
           path: target/debug/git-remote-s3
