@@ -11,6 +11,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      # Cache build
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ubuntu-20.04-${{ hashFiles('**/Cargo.lock') }}
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -44,6 +52,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      # Cache build
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: centos-8.3.2011-${{ hashFiles('**/Cargo.lock') }}
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -55,14 +71,6 @@ jobs:
       # Download and build dependent crates
       - name: Cargo check
         run: cargo check
-      # Cache build
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: centos-8.3.2011-${{ hashFiles('**/Cargo.lock') }}
       - name: Test
         run: make test
       - name: Build
@@ -79,6 +87,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      # Cache build
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: centos-7.9.2009-${{ hashFiles('**/Cargo.lock') }}
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -90,14 +106,6 @@ jobs:
       # Download and build dependent crates
       - name: Cargo check
         run: cargo check
-      # Cache build
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: centos-7.9.2009-${{ hashFiles('**/Cargo.lock') }}
       - name: Test
         run: make test
       - name: Build
