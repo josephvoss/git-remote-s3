@@ -14,7 +14,7 @@ Helper"](https://www.apriorit.com/dev-blog/715-virtualization-git-remote-helper)
 ## Examples
 
 Credentials either saved in env vars `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCES_KEY` or the AWS credentials file `~/.aws/credentials`.
+`AWS_SECRET_ACCESS_KEY` or the AWS credentials file `~/.aws/credentials`.
 
 ```
 # Path style bucket
